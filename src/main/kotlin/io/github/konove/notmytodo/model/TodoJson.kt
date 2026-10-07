@@ -10,7 +10,21 @@ import com.google.gson.JsonParser
 class TodoFormatException(message: String) : Exception(message)
 
 object TodoJson {
-    private val gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
+    /**
+     * The file version this plugin writes. Version 1 is what 0.1.0 wrote; 0.1.0 drops the fields it
+     * does not know and refuses any other version. Version 2 has the same layout, and promises that
+     * every reader keeps unknown fields, so a new field needs no new version. A version 1 file is
+     * still read, and becomes version 2 when it is next written.
+     */
+    const val NEWEST_VERSION = 2
+
+    private val fileKeys = setOf("version", "nextId", "items")
+    private val itemKeys = setOf(
+        "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "anchor",
+    )
+    private val anchorKeys = setOf("path", "startLine", "endLine", "text", "before", "after", "lost")
+
+    private val gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().serializeNulls().create()
 
     fun toText(element: JsonElement): String = gson.toJson(element)
 
@@ -21,6 +35,7 @@ object TodoJson {
         val items = JsonArray()
         file.items.sortedBy { it.number }.forEach { items.add(encodeItem(it)) }
         root.add("items", items)
+        root.addUnknown(file.unknown)
         return toText(root) + "\n"
     }
 
@@ -44,8 +59,10 @@ object TodoJson {
             ao.add("before", strings(a.before))
             ao.add("after", strings(a.after))
             ao.addProperty("lost", a.lost)
+            ao.addUnknown(a.unknown)
             o.add("anchor", ao)
         }
+        o.addUnknown(item.unknown)
         return o
     }
 
@@ -59,14 +76,14 @@ object TodoJson {
         if (!root.isJsonObject) throw TodoFormatException("the top level must be a JSON object")
         val obj = root.asJsonObject
         val version = obj.int("version") ?: 1
-        if (version != 1) throw TodoFormatException("unsupported version $version")
+        if (version !in 1..NEWEST_VERSION) throw TodoFormatException("unsupported version $version")
         val array = obj.get("items")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
         val items = array.mapIndexed { index, element -> decodeItem(element, index) }
         val duplicate = items.groupBy { it.id }.entries.firstOrNull { it.value.size > 1 }
         if (duplicate != null) throw TodoFormatException("id ${duplicate.key} is used more than once")
         val highest = items.maxOfOrNull { it.number } ?: 0
         val nextId = maxOf(obj.int("nextId") ?: 1, highest + 1)
-        return TodoFile(1, nextId, items.sortedBy { it.number })
+        return TodoFile(NEWEST_VERSION, nextId, items.sortedBy { it.number }, obj.unknown(fileKeys))
     }
 
     private fun decodeItem(element: JsonElement, index: Int): TodoItem {
@@ -90,6 +107,7 @@ object TodoJson {
             id = id, title = title, details = o.str("details").orEmpty(), priority = priority,
             tags = Tags.normalizeAll(o.strList("tags")), status = status, author = author,
             created = o.str("created").orEmpty(), updated = o.str("updated").orEmpty(), anchor = anchor,
+            unknown = o.unknown(itemKeys),
         )
     }
 
@@ -99,10 +117,17 @@ object TodoJson {
         val end = o.int("endLine") ?: start
         if (start < 1 || end < start) throw TodoFormatException("item $id has a bad anchor line range $start-$end")
         val lost = o.get("lost")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean ?: false
-        return Anchor(path, start, end, o.str("text").orEmpty(), o.strList("before"), o.strList("after"), lost)
+        return Anchor(path, start, end, o.str("text").orEmpty(), o.strList("before"), o.strList("after"), lost, o.unknown(anchorKeys))
     }
 
     private fun strings(values: List<String>): JsonArray = JsonArray().also { a -> values.forEach(a::add) }
+
+    private fun JsonObject.unknown(known: Set<String>): Map<String, JsonElement> =
+        entrySet().filter { it.key !in known }.associate { it.key to it.value }
+
+    private fun JsonObject.addUnknown(fields: Map<String, JsonElement>) {
+        fields.forEach { (key, value) -> if (!has(key)) add(key, value) }
+    }
 
     private fun JsonObject.str(key: String): String? =
         get(key)?.takeIf { it.isJsonPrimitive }?.asString

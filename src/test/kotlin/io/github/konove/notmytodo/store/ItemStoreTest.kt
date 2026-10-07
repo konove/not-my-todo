@@ -1,8 +1,10 @@
 package io.github.konove.notmytodo.store
 
+import com.google.gson.JsonParser
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Status
+import io.github.konove.notmytodo.model.TodoItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -63,6 +65,30 @@ class ItemStoreTest {
         assertEquals(Author.AGENT, saved.author)
         assertEquals("2026-10-05T10:00:00Z", saved.created)
         assertEquals("b", saved.title)
+    }
+
+    @Test
+    fun `changes keep what a newer plugin wrote`() {
+        Files.createDirectories(file.parent)
+        Files.writeString(
+            file,
+            """{"version":1,"nextId":3,"schema":"x","items":[
+                {"id":"T-1","title":"a","links":["T-2"],"anchor":{"path":"a.txt","startLine":1,"column":4}},
+                {"id":"T-2","title":"b","links":["T-1"]}]}""",
+        )
+        val s = store()
+        val anchor = Anchor("b.txt", 2, 2, "y", emptyList(), emptyList())
+        s.update("T-1") { TodoItem(it.id, "renamed", anchor = anchor) }
+        s.create(Draft("c"))
+        s.delete("T-2")
+        val root = JsonParser.parseString(Files.readString(file)).asJsonObject
+        assertEquals(2, root.get("version").asInt)
+        assertEquals("x", root.get("schema").asString)
+        val first = root.getAsJsonArray("items").first().asJsonObject
+        assertEquals("renamed", first.get("title").asString)
+        assertEquals("T-2", first.getAsJsonArray("links").single().asString)
+        assertEquals("b.txt", first.getAsJsonObject("anchor").get("path").asString)
+        assertEquals(4, first.getAsJsonObject("anchor").get("column").asInt)
     }
 
     @Test

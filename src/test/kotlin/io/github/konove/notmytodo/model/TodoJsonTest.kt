@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.model
 
+import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -16,13 +17,13 @@ class TodoJsonTest {
     @Test
     fun `round trip keeps every field`() {
         val anchor = Anchor("src/a.cpp", 3, 4, "x\ny", listOf("b"), listOf("a1", "a2"), lost = true)
-        val file = TodoFile(1, 8, listOf(item(1), item(7, anchor)))
+        val file = TodoFile(2, 8, listOf(item(1), item(7, anchor)))
         assertEquals(file, TodoJson.decode(TodoJson.encode(file)))
     }
 
     @Test
     fun `ids sort by number not by text`() {
-        val file = TodoFile(1, 101, listOf(item(100), item(9), item(10)))
+        val file = TodoFile(2, 101, listOf(item(100), item(9), item(10)))
         val ids = TodoJson.decode(TodoJson.encode(file)).items.map { it.id }
         assertEquals(listOf("T-9", "T-10", "T-100"), ids)
     }
@@ -38,7 +39,7 @@ class TodoJsonTest {
 
     @Test
     fun `keys are written in a fixed order`() {
-        val text = TodoJson.encode(TodoFile(1, 2, listOf(item(1))))
+        val text = TodoJson.encode(TodoFile(2, 2, listOf(item(1))))
         val order = listOf("\"version\"", "\"nextId\"", "\"items\"", "\"id\"", "\"title\"", "\"details\"",
             "\"priority\"", "\"tags\"", "\"status\"", "\"author\"", "\"created\"", "\"updated\"")
         val positions = order.map { text.indexOf(it) }
@@ -81,13 +82,39 @@ class TodoJsonTest {
         }
         fails("{", "JSON")
         fails("[]", "object")
-        fails("""{"version":2}""", "version")
+        fails("""{"version":3}""", "version")
         fails("""{"items":[{"id":"T-01","title":"x"}]}""", "id")
         fails("""{"items":[{"id":"T-1","title":" "}]}""", "title")
         fails("""{"items":[{"id":"T-1","title":"x"},{"id":"T-1","title":"y"}]}""", "T-1")
         fails("""{"items":[{"id":"T-1","title":"x","priority":"p9"}]}""", "priority")
         fails("""{"items":[{"id":"T-1","title":"x","status":"later"}]}""", "status")
         fails("""{"items":[{"id":"T-1","title":"x","anchor":{"path":"a","startLine":3,"endLine":2}}]}""", "line")
+    }
+
+    @Test
+    fun `fields this version does not know are written back`() {
+        val text = """{"version":1,"nextId":2,"schema":"x","items":[{"id":"T-1","title":"x",
+            "comments":[{"by":"me","text":"hm"}],"decision":null,
+            "anchor":{"path":"a.c","startLine":1,"column":4}}]}"""
+        val file = TodoJson.decode(text)
+        assertEquals(setOf("comments", "decision"), file.items.single().unknown.keys)
+        val written = JsonParser.parseString(TodoJson.encode(file)).asJsonObject
+        val item = written.getAsJsonArray("items").single().asJsonObject
+        assertEquals("x", written.get("schema").asString)
+        assertEquals("hm", item.getAsJsonArray("comments").single().asJsonObject.get("text").asString)
+        assertTrue(item.get("decision").isJsonNull)
+        assertEquals(4, item.getAsJsonObject("anchor").get("column").asInt)
+        assertEquals(file, TodoJson.decode(TodoJson.encode(file)))
+    }
+
+    @Test
+    fun `a version 1 file is read and written as version 2`() {
+        for (text in listOf("""{"items":[]}""", """{"version":1,"items":[]}""", """{"version":2,"items":[]}""")) {
+            val file = TodoJson.decode(text)
+            assertEquals(2, file.version)
+            assertTrue(TodoJson.encode(file).contains("\"version\": 2"))
+        }
+        assertTrue(TodoJson.encode(TodoFile()).contains("\"version\": 2"))
     }
 
     @Test

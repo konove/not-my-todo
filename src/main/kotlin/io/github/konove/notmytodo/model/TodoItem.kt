@@ -1,5 +1,7 @@
 package io.github.konove.notmytodo.model
 
+import com.google.gson.JsonElement
+
 enum class Priority {
     P1, P2, P3;
 
@@ -32,7 +34,10 @@ enum class Author {
     }
 }
 
-/** A place in a file. Lines are 1-based and inclusive; [path] is project-relative with forward slashes. */
+/**
+ * A place in a file. Lines are 1-based and inclusive; [path] is project-relative with forward slashes.
+ * [unknown] holds the JSON fields this version does not know, so that they are written back as they came.
+ */
 data class Anchor(
     val path: String,
     val startLine: Int,
@@ -41,6 +46,7 @@ data class Anchor(
     val before: List<String>,
     val after: List<String>,
     val lost: Boolean = false,
+    val unknown: Map<String, JsonElement> = emptyMap(),
 )
 
 data class TodoItem(
@@ -54,6 +60,8 @@ data class TodoItem(
     val created: String = "",
     val updated: String = "",
     val anchor: Anchor? = null,
+    /** The JSON fields this version does not know, written back as they came. */
+    val unknown: Map<String, JsonElement> = emptyMap(),
 ) {
     val number: Int get() = ItemId.number(id)
     val isClosed: Boolean get() = status == Status.DONE || status == Status.WONT_FIX
@@ -63,9 +71,10 @@ data class TodoItem(
 }
 
 data class TodoFile(
-    val version: Int = 1,
+    val version: Int = TodoJson.NEWEST_VERSION,
     val nextId: Int = 1,
     val items: List<TodoItem> = emptyList(),
+    val unknown: Map<String, JsonElement> = emptyMap(),
 )
 
 object ItemId {

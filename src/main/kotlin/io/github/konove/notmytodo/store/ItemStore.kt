@@ -110,6 +110,8 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         val edited = changed.copy(
             id = old.id, author = old.author, created = old.created, updated = old.updated,
             title = changed.title.trim(), tags = Tags.normalizeAll(changed.tags),
+            // A change may build the item or its anchor anew; what a newer plugin wrote stays either way.
+            unknown = old.unknown, anchor = changed.anchor?.copy(unknown = old.anchor?.unknown.orEmpty()),
         )
         if (edited.title.isEmpty()) throw StoreException("the title must not be empty")
         if (edited == old) return@mutate f to old
