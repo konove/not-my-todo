@@ -64,6 +64,37 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals(listOf("Accept", "Reopen", "Open in panel"), ItemPopup.buttons(project, fixed) {}.map { it.text })
     }
 
+    fun `test popup shows the chips of the detail pane and the details as Markdown`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("open", details = "uses `put()`", tags = listOf("x", "needs-decision")))
+        val content = ItemPopup.content(item, blocked = false)
+        val strip = content.components.filterIsInstance<MetaStrip>().single()
+        assertEquals(listOf("P2", "Open", "${item.id}  ·  note", "Needs my decision", "#x"), strip.chips())
+        val details = com.intellij.util.ui.UIUtil.findComponentOfType(content, javax.swing.JEditorPane::class.java)!!
+        assertTrue(details.text, details.text.contains("<code>put()</code>"))
+        assertTrue(content.preferredSize.height > strip.preferredSize.height)
+        assertNull(com.intellij.util.ui.UIUtil.findComponentOfType(ItemPopup.content(store.create(Draft("bare")), false), javax.swing.JEditorPane::class.java))
+    }
+
+    fun `test a row of chips counts those it has no room for`() {
+        val row = ChipRow()
+        row.show(listOf("refactoring", "game", "performance", "docs").map(Chips::tag))
+        fun shown() = row.components.filter { it.isVisible }.map { (it as Chip).text }.sortedBy { it.startsWith("+") }
+        row.setSize(1000, 28)
+        row.doLayout()
+        assertEquals(listOf("#refactoring", "#game", "#performance", "#docs"), shown())
+        val two = row.components.filterIsInstance<Chip>().filter { it.text == "#refactoring" || it.text == "#game" }.sumOf { it.preferredSize.width }
+        row.setSize(two + 60, 28)
+        row.doLayout()
+        assertEquals(listOf("#refactoring", "#game", "+2"), shown())
+        row.setSize(10, 28)
+        row.doLayout()
+        assertEquals(listOf("#refactoring", "+3"), shown())
+        row.show(emptyList())
+        row.doLayout()
+        assertEquals(emptyList<String>(), shown())
+    }
+
 
     fun `test unsaved detail edits survive a refresh of the panel`() {
         val store = TodoService.getInstance(project).store
@@ -119,7 +150,9 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(TodoService.getInstance(project).store.items.isEmpty())
     }
 
-    private fun DetailPane.tags() = metaStrip.components.filterIsInstance<javax.swing.JLabel>().map { it.text }
+    private fun javax.swing.JComponent.chips() = components.filterIsInstance<Chip>().map { it.text }
+
+    private fun DetailPane.chips() = metaStrip.chips()
 
     override fun tearDown() {
         try {
@@ -200,19 +233,16 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals(pane.columns.width - pane.columns.insets.left - pane.columns.insets.right, pane.textColumn.width)
     }
 
-    fun `test the facts line does not end with a separator`() {
+    fun `test the detail pane shows an item as chips, and a flag in place of its tag`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("a", tags = listOf("x")))
         val pane = DetailPane(project)
         pane.show(store.update(item.id) { it.copy(status = Status.FIXED) })
-        val fixed = pane.viewMeta.getCharSequence(false).toString().trim()
-        assertTrue(fixed, fixed.endsWith("note"))
-        assertFalse(fixed, fixed.contains("#"))
-        assertEquals(listOf("x"), pane.tags())
-        pane.show(store.update(item.id) { it.copy(tags = listOf("y", "z")) })
-        assertEquals(listOf("y", "z"), pane.tags())
-        pane.show(store.update(item.id) { it.copy(status = Status.OPEN) })
-        assertTrue(pane.viewMeta.getCharSequence(false).toString().trim().endsWith("agent can fix"))
+        assertEquals(listOf("P2", "Fixed, review", "${item.id}  ·  note", "#x"), pane.chips())
+        pane.show(store.update(item.id) { it.copy(tags = listOf("y", "needs-decision", "z")) })
+        assertEquals(listOf("P2", "Fixed, review", "${item.id}  ·  note", "Needs my decision", "#y", "#z"), pane.chips())
+        pane.show(store.update(item.id) { it.copy(status = Status.OPEN, tags = listOf("y")) })
+        assertEquals(listOf("P2", "Open", "${item.id}  ·  note", "Agent can fix", "#y"), pane.chips())
     }
 
     fun `test a long path keeps its ends and the file name apart`() {
@@ -292,12 +322,12 @@ class UiSmokeTest : BasePlatformTestCase() {
 
         pane.show(second)
         assertEquals("Blocked by ${first.id}  ·  Part of ${whole.id}", pane.viewLinks.getCharSequence(false).toString())
-        assertTrue(pane.viewMeta.getCharSequence(false).toString().trim().endsWith("blocked"))
+        assertTrue(pane.chips().toString(), "Blocked" in pane.chips() && "Agent can fix" !in pane.chips())
         pane.show(whole)
         assertEquals("Parts, 0/2 closed: ${first.id} ${second.id}", pane.viewLinks.getCharSequence(false).toString())
         pane.show(store.update(first.id) { it.copy(status = Status.DONE) })
         pane.show(store.find(second.id))
-        assertTrue(pane.viewMeta.getCharSequence(false).toString().trim().endsWith("agent can fix"))
+        assertTrue(pane.chips().toString(), "Agent can fix" in pane.chips() && "Blocked" !in pane.chips())
 
         val other = store.create(Draft("other"))
         pane.show(other)
@@ -359,8 +389,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val item = store.create(Draft("a", effort = io.github.konove.notmytodo.model.Effort.S))
         val pane = DetailPane(project)
         pane.show(item)
-        val facts = pane.viewMeta.getCharSequence(false).toString()
-        assertTrue(facts, facts.startsWith("P2  ·  S  ·  "))
+        assertEquals(listOf("P2", "S", "Open"), pane.chips().take(3))
         pane.effortBox.selectedItem = io.github.konove.notmytodo.model.Effort.L
         pane.save()
         assertEquals(io.github.konove.notmytodo.model.Effort.L, store.find(item.id)!!.effort)

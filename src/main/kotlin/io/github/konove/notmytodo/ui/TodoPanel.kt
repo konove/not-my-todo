@@ -612,7 +612,15 @@ class TodoPanel(
 
     /** The cells of an item row: every column but the title has a fixed width, and the title takes what is left. */
     private class Cells : JPanel(null) {
-        val all = COLUMN_WIDTHS.map { cell().also(::add) }.also { it.last().setTextAlign(SwingConstants.RIGHT) }
+        val mark = cell()
+        val title = cell()
+        val tags = ChipRow()
+        val place = cell()
+        val status = ChipRow()
+        val id = cell()
+        val updated = cell().apply { setTextAlign(SwingConstants.RIGHT) }
+        val texts = listOf(mark, title, place, id, updated)
+        val all: List<JComponent> = listOf(mark, title, tags, place, status, id, updated).onEach(::add)
 
         init {
             isOpaque = false
@@ -661,16 +669,9 @@ class TodoPanel(
             val value = row.item
             val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
             val code = CodeTodos.isCode(value)
-            val (mark, title, tags, place, status) = cells.all
-            val id = cells.all[5]
-            val updated = cells.all[6]
-            cells.all.forEach { it.clear() }
+            val (mark, title, place, id, updated) = cells.texts
+            cells.texts.forEach { it.clear() }
             mark.icon = if (code) AllIcons.General.TodoDefault else PriorityColors.icon(value.priority)
-            title.icon = when {
-                value.needsDecision -> AllIcons.General.User
-                row.blocked -> AllIcons.Nodes.Padlock
-                else -> null
-            }
             title.append(
                 value.title,
                 when {
@@ -681,15 +682,15 @@ class TodoPanel(
             )
             value.effort?.let { title.append("  ${it.name}", grey) }
             if (row.parts > 0) title.append("  ${row.partsClosed}/${row.parts} closed", grey)
-            tags.append(value.tags.joinToString(" ") { "#$it" }, grey)
+            cells.tags.show(listOfNotNull(Chips.waits(value, row.blocked)) + Chips.tags(value))
             val anchor = value.anchor
             when {
                 anchor == null -> place.append("Note", grey)
                 value.anyLost -> place.append("Anchor lost", SimpleTextAttributes.ERROR_ATTRIBUTES)
                 else -> place.append(placeText(anchor, value.anchors.size - 1), grey)
             }
+            cells.status.show(if (code) emptyList() else listOf(Chips.status(value.status)))
             if (!code) {
-                status.append(value.status.label, StatusColors.attributes(value.status))
                 id.append(value.id, grey)
                 updated.append(updatedText(value.updated), grey)
             }
@@ -705,7 +706,7 @@ class TodoPanel(
         fun cell() = SimpleColoredComponent().apply { isOpaque = false }
 
         /** Priority, title, tags, place, status, ID, updated. The title takes what is left. */
-        val COLUMN_WIDTHS = listOf(28, 0, 140, 240, 110, 50, 130)
+        val COLUMN_WIDTHS = listOf(28, 0, 220, 240, 110, 50, 130)
 
         /** The file with its directory, the lines, and how many [more] anchors the item has: `ui/TodoPanel.kt:124–129 +2`. */
         fun placeText(anchor: Anchor, more: Int = 0): String {

@@ -135,27 +135,6 @@ private class RoundedBox : JPanel(BorderLayout()) {
     }
 }
 
-/** A tag, as a small rounded label. */
-private class Chip(tag: String) : JBLabel(tag) {
-    init {
-        font = JBUI.Fonts.smallFont()
-        foreground = UIUtil.getContextHelpForeground()
-        border = JBUI.Borders.empty(1, 7)
-    }
-
-    override fun paintComponent(g: Graphics) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = JBColor(Color(0xF0F1F4), Color(0x393B40))
-            g2.fillRoundRect(0, 0, width, height, height, height)
-        } finally {
-            g2.dispose()
-        }
-        super.paintComponent(g)
-    }
-}
-
 /**
  * The row grid never makes a row narrower than its minimum, and what wraps gives the width it last
  * had as its minimum. So what wraps asks for little, takes the width it is given, and has its
@@ -175,7 +154,7 @@ private class WrappedText : JBTextArea() {
     }
 }
 
-/** The facts and the tags in a line that goes on to the next when the column is narrow. */
+/** The chips of an item in a line that goes on to the next when the column is narrow. */
 internal class MetaStrip : JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(2))) {
     init {
         isOpaque = false
@@ -291,8 +270,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         add(anchorSteps, BorderLayout.EAST)
     }
     internal val viewTitle: JBTextArea = readOnlyText().apply { font = font.deriveFont(Font.BOLD, font.size2D + 1f) }
-    internal val viewMeta = SimpleColoredComponent().apply { isOpaque = false }
-    internal val metaStrip = MetaStrip().apply { add(viewMeta) }
+    internal val metaStrip = MetaStrip()
 
     /** The item's links to other items; an id is clicked to go to that item. */
     internal val viewLinks = SimpleColoredComponent().apply {
@@ -309,7 +287,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         addMouseListener(mouse)
         addMouseMotionListener(mouse)
     }
-    private var shownTags: List<String>? = null
+    private var shownStrip: List<ChipSpec>? = null
     internal val viewDetails = JEditorPane().apply {
         editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
         isEditable = false
@@ -534,32 +512,11 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             viewDetails.text = text
             viewDetails.caretPosition = 0
         }
-        val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
-        viewMeta.clear()
-        if (code) {
-            viewMeta.icon = AllIcons.General.TodoDefault
-            viewMeta.append("Comment in the code", grey)
-        } else {
-            viewMeta.icon = PriorityColors.icon(item.priority)
-            viewMeta.append("${item.priority.name}  ·  ", grey)
-            item.effort?.let { viewMeta.append("${it.name}  ·  ", grey) }
-            viewMeta.append(item.status.label, StatusColors.attributes(item.status))
-            viewMeta.append("  ·  ${item.id}", grey)
-            if (anchor == null) viewMeta.append("  ·  note", grey)
-            if (item.needsDecision) {
-                viewMeta.append("  ·  ", grey)
-                viewMeta.append("needs my decision", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-            } else if (links.isBlocked(item)) {
-                viewMeta.append("  ·  blocked", grey)
-            } else if (!item.isClosed && item.status != Status.FIXED) {
-                viewMeta.append("  ·  agent can fix", grey)
-            }
-        }
-        val tags = if (code) emptyList() else item.tags
-        if (tags != shownTags) {
-            shownTags = tags
-            metaStrip.components.filterIsInstance<Chip>().forEach(metaStrip::remove)
-            tags.forEach { metaStrip.add(Chip(it)) }
+        val strip = if (code) listOf(Chips.codeComment) else Chips.strip(item, links.isBlocked(item))
+        if (strip != shownStrip) {
+            shownStrip = strip
+            metaStrip.removeAll()
+            strip.forEach { metaStrip.add(Chip(it)) }
         }
         whereLabel.text = anchor?.let { where(it, item.anchors.size) }.orEmpty()
         whereLabel.toolTipText = anchor?.path
