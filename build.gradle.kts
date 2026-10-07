@@ -1,5 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -14,6 +15,11 @@ val clionVersion = "2026.2.3"
 
 kotlin {
     jvmToolchain(25)
+    compilerOptions {
+        // Without this the compiler copies every default method of a platform interface into the class
+        // that implements it, and the plugin verifier counts the deprecated and experimental ones as used.
+        jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
+    }
 }
 
 repositories {

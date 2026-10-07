@@ -2,11 +2,11 @@ package io.github.konove.notmytodo.channel
 
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.SystemInfo
 import io.github.konove.notmytodo.handoff.ClaudeLauncher
+import java.io.File
 import java.io.IOException
 import java.nio.charset.CharacterCodingException
 import java.nio.file.AtomicMoveNotSupportedException
@@ -130,10 +130,10 @@ class ChannelRegistration(
 
         /** An IDE started from the desktop often lacks the shell's PATH, so the usual install places are tried too. */
         private fun findClaude(): String? {
-            PathEnvironmentVariableUtil.findInPath("claude")?.let { return it.path }
+            val onPath = System.getenv("PATH").orEmpty().split(File.pathSeparator).filter { it.isNotEmpty() }.map { "$it/claude" }
             val home = System.getProperty("user.home")
-            return listOf("$home/.local/bin/claude", "$home/.claude/local/claude", "/usr/local/bin/claude", "/opt/homebrew/bin/claude")
-                .firstOrNull { Files.isExecutable(Path.of(it)) }
+            val usual = listOf("$home/.local/bin/claude", "$home/.claude/local/claude", "/usr/local/bin/claude", "/opt/homebrew/bin/claude")
+            return (onPath + usual).firstOrNull { Files.isExecutable(Path.of(it)) }
         }
     }
 }

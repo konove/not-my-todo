@@ -15,6 +15,7 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -39,7 +40,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.text.DateFormatUtil
-import com.intellij.ui.popup.list.SelectablePanel
+import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.ide.CodeTodos
@@ -56,12 +57,16 @@ import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.settings.TodoSettingsListener
 import java.awt.BorderLayout
 import java.awt.CardLayout
+import java.awt.Color
 import java.awt.Component
 import java.awt.FlowLayout
+import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.time.Instant
+import javax.accessibility.AccessibleContext
 import javax.swing.DefaultListSelectionModel
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -378,7 +383,7 @@ class TodoPanel(
         val currentPath = FileEditorManager.getInstance(project).selectedFiles.firstOrNull()
             ?.let { service.relativePath(it) }
         // Asking a scope about a file needs a read action, which the event thread no longer holds by itself.
-        val all = ReadAction.compute<List<TodoItem>, RuntimeException> { store.items.filter(::inFileScope) }
+        val all = runReadActionBlocking { store.items.filter(::inFileScope) }
         // Replacing the models clears the selections for a moment; nothing may react to that.
         refreshing = true
         try {
@@ -525,13 +530,36 @@ class TodoPanel(
         val label: String get() = scope?.label ?: tag?.let { "#$it" } ?: if (header) "Tags" else "Code comments"
     }
 
+    /** A row that paints its selection as a rounded bar set in from the edges of the list. */
+    private class RoundedRow(private val content: JComponent) : JPanel(BorderLayout()) {
+        var selectionColor: Color? = null
+
+        init {
+            add(content, BorderLayout.CENTER)
+        }
+
+        override fun getAccessibleContext(): AccessibleContext = content.accessibleContext
+
+        override fun paintComponent(g: Graphics) {
+            g.color = background
+            g.fillRect(0, 0, width, height)
+            val color = selectionColor ?: return
+            val g2 = g.create() as Graphics2D
+            try {
+                GraphicsUtil.setupAAPainting(g2)
+                g2.color = color
+                val inset = JBUI.scale(6)
+                val arc = JBUI.scale(8)
+                g2.fillRoundRect(inset, 0, width - 2 * inset, height, arc, arc)
+            } finally {
+                g2.dispose()
+            }
+        }
+    }
+
     /** Draws a row with the rounded selection of the IDE's own lists. */
     private abstract class RoundedRenderer<T>(content: JComponent) : ListCellRenderer<T> {
-        private val row = SelectablePanel.wrap(content).apply {
-            selectionArc = JBUI.scale(8)
-            selectionInsets = JBUI.insets(0, 6)
-            border = JBUI.Borders.empty(0, 14)
-        }
+        private val row = RoundedRow(content)
 
         abstract fun customize(value: T, selected: Boolean)
 

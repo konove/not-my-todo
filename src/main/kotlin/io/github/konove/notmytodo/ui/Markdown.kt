@@ -7,6 +7,7 @@ import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.html.HtmlGenerator
+import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.MarkdownParser
 import java.time.Instant
 import java.time.ZoneId
@@ -22,7 +23,7 @@ object Markdown {
     /** The HTML of [text] without the tags around it, to put several texts in one page. */
     fun body(text: String): String {
         val source = keepLineBreaks(text)
-        val tree = MarkdownParser(flavour).buildMarkdownTreeFromString(source)
+        val tree = MarkdownParser(flavour, true, CancellationToken.NonCancellable).buildMarkdownTreeFromString(source as CharSequence)
         return HtmlGenerator(source, tree, flavour).generateHtml().removeSurrounding("<body>", "</body>")
     }
 
