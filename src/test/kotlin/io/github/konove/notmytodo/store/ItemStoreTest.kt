@@ -4,6 +4,7 @@ import com.google.gson.JsonParser
 import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import org.junit.Assert.assertEquals
@@ -350,5 +351,13 @@ class ItemStoreTest {
         assertThrows(StoreException::class.java) { s.decide("T-1", listOf(Decision("q", emptyList(), " ", ""))) }
         assertThrows(StoreException::class.java) { s.decide("T-9", listOf(Decision("q", emptyList(), "a", ""))) }
         assertEquals(2, s.find("T-1")!!.decisions.size)
+    }
+
+    @Test
+    fun `a new item keeps the effort of its draft`() {
+        val s = store()
+        assertEquals(Effort.S, s.create(Draft("a", effort = Effort.S)).effort)
+        assertNull(s.create(Draft("b")).effort)
+        assertEquals(Effort.S, store().find("T-1")!!.effort)
     }
 }

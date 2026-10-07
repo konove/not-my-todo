@@ -12,6 +12,17 @@ enum class Priority {
     }
 }
 
+/** A rough guess at how much work an item is: small, medium or large. */
+enum class Effort {
+    S, M, L;
+
+    val json: String get() = name.lowercase()
+
+    companion object {
+        fun fromJson(s: String): Effort? = entries.firstOrNull { it.json == s.trim().lowercase() }
+    }
+}
+
 enum class Status(val label: String) {
     OPEN("Open"), IN_PROGRESS("In progress"), FIXED("Fixed, review"), DONE("Done"), WONT_FIX("Won't fix");
 
@@ -114,6 +125,8 @@ data class TodoItem(
     val fixedIn: String? = null,
     /** What was done to fix it, or why it was closed without a change; Markdown, a sentence or two. */
     val resolution: String? = null,
+    /** How much work it is thought to be; none when nobody has said. */
+    val effort: Effort? = null,
     /** What I have to decide before this can be fixed; Markdown. It stays when I have decided. */
     val toDecide: String? = null,
     /** What I was asked and what I answered, oldest first. Only ever added to, like [comments]. */

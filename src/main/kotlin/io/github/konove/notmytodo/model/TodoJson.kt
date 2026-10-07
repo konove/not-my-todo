@@ -23,7 +23,7 @@ object TodoJson {
     private val itemKeys = setOf(
         "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor", "anchors",
         "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
-        "toDecide", "decisions",
+        "toDecide", "decisions", "effort",
     )
     private val decisionKeys = setOf("question", "options", "answer", "time")
     private val commentKeys = setOf("author", "time", "text")
@@ -50,6 +50,7 @@ object TodoJson {
         o.addProperty("title", item.title)
         o.addProperty("details", item.details)
         o.addProperty("priority", item.priority.json)
+        item.effort?.let { o.addProperty("effort", it.json) }
         o.add("tags", strings(item.tags))
         o.addProperty("status", item.status.json)
         o.addProperty("author", item.author.json)
@@ -142,6 +143,9 @@ object TodoJson {
         val priority = o.str("priority")?.let {
             Priority.fromJson(it) ?: throw TodoFormatException("item $id has a bad priority \"$it\"")
         } ?: Priority.P2
+        val effort = o.text("effort")?.let {
+            Effort.fromJson(it) ?: throw TodoFormatException("item $id has a bad effort \"$it\"")
+        }
         val status = o.str("status")?.let {
             Status.fromJson(it) ?: throw TodoFormatException("item $id has a bad status \"$it\"")
         } ?: Status.OPEN
@@ -161,7 +165,7 @@ object TodoJson {
             anchors = anchors, blockedBy = o.strList("blockedBy").mapNotNull(ItemId::normalize).distinct(),
             duplicateOf = o.str("duplicateOf")?.let(ItemId::normalize), parent = o.str("parent")?.let(ItemId::normalize),
             source = o.text("source"), fixedIn = o.text("fixedIn"), resolution = o.text("resolution"),
-            toDecide = o.text("toDecide"), decisions = decisions,
+            toDecide = o.text("toDecide"), decisions = decisions, effort = effort,
             unknown = o.unknown(itemKeys),
         )
     }

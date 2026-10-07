@@ -353,4 +353,19 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(after.indexOf("Decided · 2") < after.indexOf("the details"))
         assertFalse(ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-2", "b", details = "d")).contains("ecide"))
     }
+
+    fun `test the detail pane shows and edits the effort of an item`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("a", effort = io.github.konove.notmytodo.model.Effort.S))
+        val pane = DetailPane(project)
+        pane.show(item)
+        val facts = pane.viewMeta.getCharSequence(false).toString()
+        assertTrue(facts, facts.startsWith("P2  ·  S  ·  "))
+        pane.effortBox.selectedItem = io.github.konove.notmytodo.model.Effort.L
+        pane.save()
+        assertEquals(io.github.konove.notmytodo.model.Effort.L, store.find(item.id)!!.effort)
+        pane.effortBox.selectedIndex = 0
+        pane.save()
+        assertNull(store.find(item.id)!!.effort)
+    }
 }

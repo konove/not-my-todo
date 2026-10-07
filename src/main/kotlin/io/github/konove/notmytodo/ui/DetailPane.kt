@@ -45,6 +45,7 @@ import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Links
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
@@ -251,6 +252,8 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         emptyText.text = "Details"
     }
     private val priorityBox = ComboBox(Priority.entries.toTypedArray()).apply { toolTipText = "Priority" }
+    /** The first entry is for an item nobody has sized. */
+    internal val effortBox = ComboBox(arrayOf<Any>(NO_EFFORT, *Effort.entries.toTypedArray())).apply { toolTipText = "Effort" }
     private val statusBox = ComboBox(Status.entries.toTypedArray()).apply { toolTipText = "Status" }
     private val tagsField = JBTextField().apply { emptyText.text = "#tags" }
     private val blockedField = JBTextField().apply { emptyText.text = "Blocked by: T-1 T-2" }
@@ -390,6 +393,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val titleEdit = row { cell(titleField).align(AlignX.FILL) }
         val factsEdit = row {
             cell(priorityBox)
+            cell(effortBox)
             cell(statusBox)
             cell(tagsField).align(AlignX.FILL).resizableColumn()
         }
@@ -507,6 +511,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (shown == null || titleField.text == shown.title) titleField.text = item.title
         if (shown == null || detailsArea.text == shown.details) detailsArea.text = item.details
         if (shown == null || priorityBox.selectedItem == shown.priority) priorityBox.selectedItem = item.priority
+        if (shown == null || effortBox.selectedItem as? Effort == shown.effort) effortBox.selectedItem = item.effort ?: NO_EFFORT
         if (shown == null || statusBox.selectedItem == shown.status) statusBox.selectedItem = item.status
         if (shown == null || Tags.parseList(tagsField.text) == shown.tags) {
             tagsField.text = item.tags.joinToString(" ") { "#$it" }
@@ -537,6 +542,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         } else {
             viewMeta.icon = PriorityColors.icon(item.priority)
             viewMeta.append("${item.priority.name}  ·  ", grey)
+            item.effort?.let { viewMeta.append("${it.name}  ·  ", grey) }
             viewMeta.append(item.status.label, StatusColors.attributes(item.status))
             viewMeta.append("  ·  ${item.id}", grey)
             if (anchor == null) viewMeta.append("  ·  note", grey)
@@ -671,6 +677,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             val title = titleField.text
             val details = detailsArea.text
             val priority = priorityBox.selectedItem as Priority
+            val effort = effortBox.selectedItem as? Effort
             val status = statusBox.selectedItem as Status
             val tags = Tags.parseList(tagsField.text)
             val blockedBy = ItemId.parseList(blockedField.text)
@@ -685,6 +692,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
                     title = if (title != item.title) title else it.title,
                     details = if (details != item.details) details else it.details,
                     priority = if (priority != item.priority) priority else it.priority,
+                    effort = if (effort != item.effort) effort else it.effort,
                     status = if (status != item.status) status else it.status,
                     tags = if (tags != item.tags) tags else it.tags,
                     blockedBy = if (blockedBy != item.blockedBy) blockedBy else it.blockedBy,
@@ -757,5 +765,6 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
 
     private companion object {
         const val CONTEXT_LINES = 15
+        const val NO_EFFORT = "No effort"
     }
 }

@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.model.Anchor
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -179,5 +180,24 @@ class ItemFilterTest {
             ),
             ItemGroups.rows(shown, GroupBy.PRIORITY, emptySet(), links),
         )
+    }
+
+    @Test
+    fun `within a priority less effort comes first and no effort last`() {
+        val sized = listOf(
+            TodoItem("T-1", "none"),
+            TodoItem("T-2", "large", effort = Effort.L),
+            TodoItem("T-3", "small", effort = Effort.S),
+            TodoItem("T-4", "small too", effort = Effort.S),
+            TodoItem("T-5", "urgent and large", priority = Priority.P1, effort = Effort.L),
+        )
+        assertEquals(listOf("T-5", "T-3", "T-4", "T-2", "T-1"), ItemFilter.apply(sized, ItemQuery()).map { it.id })
+    }
+
+    @Test
+    fun `search finds items by effort`() {
+        val sized = listOf(TodoItem("T-1", "none"), TodoItem("T-2", "large", effort = Effort.L), TodoItem("T-3", "small", effort = Effort.S))
+        assertEquals(listOf("T-3"), ItemFilter.apply(sized, ItemQuery("!s")).map { it.id })
+        assertEquals(listOf("T-2"), ItemFilter.apply(sized, ItemQuery("!L")).map { it.id })
     }
 }

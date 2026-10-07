@@ -4,6 +4,7 @@ import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.anchor.AnchorResolver
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
 import org.junit.Assert.assertEquals
@@ -243,5 +244,11 @@ class PromptBuilderTest {
         val p = PromptBuilder.build(decided, files, "")
         assertTrue(p, p.contains("\nAlready decided by the user:\n- Per unit or per cell? Answer: Per cell\n- Evict when? Answer: never\n"))
         assertFalse(PromptBuilder.build(anchored, files, "").contains("Already decided"))
+    }
+
+    @Test
+    fun `the effort is said after the priority`() {
+        val p = PromptBuilder.build(anchored.copy(effort = Effort.S), files, "")
+        assertTrue(p, p.startsWith("Fix TODO item T-14 (priority p1, effort s, tags: perf, pathing)."))
     }
 }

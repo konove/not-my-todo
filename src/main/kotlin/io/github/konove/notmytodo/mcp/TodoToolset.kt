@@ -17,7 +17,8 @@ class TodoToolset : McpToolset {
     @McpDescription(
         "List the TODO items kept by the Not My TODO plugin for this project, in id order. " +
             "All filters must match. Returns a JSON array. Anchored items include, for each of their anchors, the file path and " +
-            "current line range but not the code; use todo_get for the code. Pass lost=true after moving or rewriting code " +
+            "current line range but not the code; use todo_get for the code. To choose what to work on next, take the highest priority first and, " +
+            "within a priority, the least effort. Pass lost=true after moving or rewriting code " +
             "to find the items that need re-attaching. Pass blocked=false to find the items that can be worked on now. Pass compact=true to survey many items, " +
             "for example to check for a duplicate before todo_create."
     )
@@ -28,11 +29,12 @@ class TodoToolset : McpToolset {
         @McpDescription("Only items with an anchor in this file or anywhere under this directory, as a path relative to the project root") path: String? = null,
         @McpDescription("Leave out items that have any of these tags, separated by commas or spaces") withoutTags: String? = null,
         @McpDescription("Only items whose title or details contain every one of these words, in any case") text: String? = null,
-        @McpDescription("One line per item with id, title, priority, status, tags and \"at\" (path:lines of each anchor); no details") compact: Boolean = false,
+        @McpDescription("One line per item with id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor); no details") compact: Boolean = false,
         @McpDescription("Only items with a lost anchor: the code or file they were attached to can no longer be found. Re-attach them with todo_update") lost: Boolean = false,
         @McpDescription("true for only blocked items, false for only items that are not blocked. An item is blocked while one it is blocked by is not done or wont_fix") blocked: Boolean? = null,
         @McpDescription("Only the parts of this item: the items that have it as their parent") parent: String? = null,
-    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact, lost, blocked, parent) }
+        @McpDescription("Only items with this effort: s, m or l") effort: String? = null,
+    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact, lost, blocked, parent, effort) }
 
     @McpTool
     @McpDescription(
@@ -67,7 +69,8 @@ class TodoToolset : McpToolset {
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own") parent: String? = null,
         @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind, for example 30c6f6ae..e9ac6245. Put it here and not in details") source: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided") toDecide: String? = null,
-    ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide) }
+        @McpDescription("Your rough guess at how much work it is: s for under an hour, m for a few hours, l for a day or more. Pass it whenever you can tell") effort: String? = null,
+    ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide, effort) }
 
     @McpTool
     @McpDescription(
@@ -98,8 +101,9 @@ class TodoToolset : McpToolset {
         @McpDescription("Id of the commit that fixed the item, if the work is committed. Pass an empty text to take it away") fixedIn: String? = null,
         @McpDescription("What you did to fix the item, or why it is closed without a change, as Markdown in a sentence or two. Pass an empty text to take it away") resolution: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided. Pass an empty text to take it away") toDecide: String? = null,
+        @McpDescription("A rough guess at how much work it is: s for under an hour, m for a few hours, l for a day or more. Pass an empty text to take it away") effort: String? = null,
     ): String = call {
-        it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide)
+        it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide, effort)
     }
 
     @McpTool
@@ -123,11 +127,11 @@ class TodoToolset : McpToolset {
             "fields of todo_update except path, startLine, endLine and places, and comment as well, which adds a comment " +
             "as todo_comment does; an object without an id is a new item " +
             "and takes the fields of todo_create. The entries are applied in order, and when one is wrong none is saved " +
-            "and the error names it. Returns one line per entry with the id, title, priority, status and tags of the item as saved."
+            "and the error names it. Returns one line per entry with the id, title, priority, effort, status and tags of the item as saved."
     )
     suspend fun todo_batch(
         @McpDescription(
-            "JSON array of objects, for example [{\"title\": \"Cache the index\", \"priority\": \"p3\", \"tags\": \"perf\", " +
+            "JSON array of objects, for example [{\"title\": \"Cache the index\", \"priority\": \"p3\", \"effort\": \"s\", \"tags\": \"perf\", " +
                 "\"path\": \"src/Index.kt\", \"startLine\": 12}, {\"id\": \"T-3\", \"tags\": \"perf mcp\"}, " +
                 "{\"id\": \"T-4\", \"status\": \"wont_fix\", \"resolution\": \"...\"}, " +
                 "{\"id\": \"T-5\", \"toDecide\": \"Which of the two?\"}]"

@@ -44,7 +44,8 @@ object PromptBuilder {
         } else {
             val tags = if (item.tags.isEmpty()) "" else ", tags: ${item.tags.joinToString(", ")}"
             val opening = if (item.needsDecision) "TODO item ${item.id} waits for a decision that is the user's to make" else "Fix TODO item ${item.id}"
-            out.append("$opening (priority ${item.priority.json}$tags).\n\n")
+            val effort = item.effort?.let { ", effort ${it.json}" }.orEmpty()
+            out.append("$opening (priority ${item.priority.json}$effort$tags).\n\n")
             out.append("Title: ${item.title}\n")
         }
         if (options.short && !comment) {

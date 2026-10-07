@@ -262,4 +262,16 @@ class TodoJsonTest {
             TodoJson.decode("""{"items":[{"id":"T-1","title":"a","decisions":["x"]}]}""")
         }
     }
+
+    @Test
+    fun `effort is kept, left out when not said, and refused when it is not s, m or l`() {
+        val file = TodoFile(2, 3, listOf(item(1), item(2).copy(effort = Effort.M)))
+        val text = TodoJson.encode(file)
+        assertEquals(file, TodoJson.decode(text))
+        assertEquals(1, Regex("\"effort\": \"m\"").findAll(text).count())
+        assertEquals(1, Regex("\"effort\"").findAll(text).count())
+        assertThrows(TodoFormatException::class.java) {
+            TodoJson.decode("""{"items":[{"id":"T-1","title":"a","effort":"xl"}]}""")
+        }
+    }
 }

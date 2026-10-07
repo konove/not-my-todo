@@ -651,6 +651,7 @@ class TodoPanel(
                     else -> SimpleTextAttributes.REGULAR_ATTRIBUTES
                 },
             )
+            value.effort?.let { title.append("  ${it.name}", grey) }
             if (row.parts > 0) title.append("  ${row.partsClosed}/${row.parts} closed", grey)
             tags.append(value.tags.joinToString(" ") { "#$it" }, grey)
             val anchor = value.anchor

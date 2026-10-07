@@ -8,6 +8,10 @@ AI agent take items off your hands.
   selected, or after removing the anchor, it saves a plain note.
 - **List:** the Not My TODO tool window at the bottom. Search with words, an id like `T-12`, `#tag`
   and `!p1`. Double-click an item to jump to its code.
+- **Effort:** an item can say how much work it is: `S`, `M` or `L`, set by the
+  agent that files it or by you in the detail pane. Within a priority the
+  list puts less effort first and items without one last; search `!s`, `!m`
+  or `!l` to see one size.
 - **Code comments:** the Code comments entry lists the TODO comments the IDE
   finds in the project's sources. Track as an Item turns one into an item
   attached to that line.
@@ -69,9 +73,9 @@ With the IDE's MCP server enabled, these tools are available:
 
 | Tool | Purpose |
 |---|---|
-| `todo_list` | List items, filtered by status, tags to have or not have, priority, file or directory, text, `blocked` and `parent`; `compact` leaves out details |
+| `todo_list` | List items, filtered by status, tags to have or not have, priority, effort, file or directory, text, `blocked` and `parent`; `compact` leaves out details |
 | `todo_get` | One item with its current line range and code |
-| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, with the `source` commit or run it came from, and with `toDecide` when you have to decide something first |
+| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, with the `source` commit or run it came from, with an `effort` of `s`, `m` or `l`, and with `toDecide` when you have to decide something first |
 | `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit; `toDecide` says what you have to decide and tags the item `needs-decision` |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
 | `todo_decided` | Record what you were asked about an item and what you answered: each question, the options offered and the answer |

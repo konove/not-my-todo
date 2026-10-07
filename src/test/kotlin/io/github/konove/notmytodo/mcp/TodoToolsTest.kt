@@ -8,6 +8,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.ide.AnchorTracker
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.store.Draft
 import io.github.konove.notmytodo.store.ItemStore
@@ -491,5 +492,31 @@ class TodoToolsTest : BasePlatformTestCase() {
         failsWith("chosen") { tools.decided("T-1", """[{"question": "q", "chosen": "a"}]""") }
         failsWith("T-9") { tools.decided("T-9", """[{"question": "q", "answer": "a"}]""") }
         assertEquals(3, store.find("T-1")!!.decisions.size)
+    }
+
+    fun `test effort is set, changed, taken away and listed`() {
+        val made = JsonParser.parseString(tools.create("a", null, null, null, null, null, null, effort = "S")).asJsonObject
+        assertEquals("s", made.get("effort").asString)
+        tools.create("b", null, null, null, null, null, null)
+        tools.update("T-2", null, null, null, null, null, effort = "l")
+        assertEquals(Effort.L, store.find("T-2")!!.effort)
+        tools.update("T-2", "renamed", null, null, null, null)
+        assertEquals(Effort.L, store.find("T-2")!!.effort)
+        val ids = { out: String -> JsonParser.parseString(out).asJsonArray.map { it.asJsonObject.get("id").asString } }
+        assertEquals(listOf("T-1"), ids(tools.list(effort = "s")))
+        val rows = JsonParser.parseString(tools.list(compact = true)).asJsonArray.map { it.asJsonObject }
+        assertEquals("l", rows[1].get("effort").asString)
+        tools.update("T-2", null, null, null, null, null, effort = "")
+        assertNull(store.find("T-2")!!.effort)
+        failsWith("effort") { tools.create("c", null, null, null, null, null, null, effort = "xl") }
+        failsWith("effort") { tools.update("T-1", null, null, null, null, null, effort = "huge") }
+        failsWith("effort") { tools.list(effort = "tiny") }
+    }
+
+    fun `test batch sets effort on new and changed items`() {
+        store.create(Draft("a"))
+        tools.batch("""[{"id": "T-1", "effort": "m"}, {"title": "b", "effort": "s"}]""")
+        assertEquals(Effort.M, store.find("T-1")!!.effort)
+        assertEquals(Effort.S, store.find("T-2")!!.effort)
     }
 }

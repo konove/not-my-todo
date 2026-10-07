@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -16,7 +17,7 @@ enum class ItemSort(val label: String) {
 }
 
 /**
- * Words in [text] are looked for in the id, title, details and tags. An empty set of priorities, statuses or authors means any. A status asked for by name is shown even when closed.
+ * Words in [text] are looked for in the id, title, details and tags; `!p1`..`!p3` asks for a priority and `!s`, `!m` or `!l` for an effort. An empty set of priorities, statuses or authors means any. A status asked for by name is shown even when closed.
  */
 data class ItemQuery(
     val text: String = "",
@@ -32,6 +33,7 @@ data class ItemQuery(
 
 object ItemFilter {
     private val priorityToken = Regex("!p[123]")
+    private val effortToken = Regex("![sml]")
 
     fun apply(items: List<TodoItem>, query: ItemQuery): List<TodoItem> {
         val words = query.text.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
@@ -49,7 +51,8 @@ object ItemFilter {
     }
 
     private fun order(sort: ItemSort): Comparator<TodoItem> {
-        val byPriority = compareBy<TodoItem> { it.priority }.thenBy { it.number }
+        // Within a priority the quick ones come first; an item nobody has sized goes after the large ones.
+        val byPriority = compareBy<TodoItem> { it.priority }.thenBy { it.effort?.ordinal ?: Effort.entries.size }.thenBy { it.number }
         return when (sort) {
             ItemSort.PRIORITY -> byPriority
             ItemSort.UPDATED -> compareByDescending<TodoItem> { it.updated }.then(byPriority)
@@ -70,6 +73,7 @@ object ItemFilter {
 
     private fun matches(item: TodoItem, word: String): Boolean = when {
         priorityToken.matches(word) -> item.priority.json == word.drop(1)
+        effortToken.matches(word) -> item.effort?.json == word.drop(1)
         word.startsWith("#") && word.length > 1 -> word.drop(1) in item.tags
         else -> item.id.lowercase().contains(word) ||
             item.title.lowercase().contains(word) ||

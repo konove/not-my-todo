@@ -4,6 +4,7 @@ import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.Decision
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -35,6 +36,7 @@ data class Draft(
     val parent: String? = null,
     val source: String? = null,
     val toDecide: String? = null,
+    val effort: Effort? = null,
 )
 
 /**
@@ -130,7 +132,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             tags = Tags.normalizeAll(draft.tags), status = Status.OPEN, author = draft.author,
             created = now, updated = now, anchors = draft.anchors,
             blockedBy = draft.blockedBy.distinct(), duplicateOf = draft.duplicateOf, parent = draft.parent,
-            source = draft.source.said(), toDecide = draft.toDecide.said(),
+            source = draft.source.said(), toDecide = draft.toDecide.said(), effort = draft.effort,
         )
         checkLinks(item, f.items + item)
         return f.copy(nextId = f.nextId + 1, items = f.items + item) to item

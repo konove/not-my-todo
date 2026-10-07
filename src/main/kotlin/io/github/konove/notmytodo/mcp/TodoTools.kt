@@ -15,6 +15,7 @@ import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Decision
+import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
@@ -36,11 +37,12 @@ class TodoTools(private val project: Project) {
     fun list(
         status: String? = null, tags: String? = null, priority: String? = null, path: String? = null,
         withoutTags: String? = null, text: String? = null, compact: Boolean = false, lost: Boolean = false,
-        blocked: Boolean? = null, parent: String? = null,
+        blocked: Boolean? = null, parent: String? = null, effort: String? = null,
     ): String {
         val partOf = parent?.takeIf { it.isNotBlank() }?.let(::parseId)
         val statuses = words(status).map(::parseStatus)
         val wantedPriority = priority?.takeIf { it.isNotBlank() }?.let(::parsePriority)
+        val wantedEffort = effort?.takeIf { it.isNotBlank() }?.let(::parseEffort)
         val wanted = Tags.parseList(tags.orEmpty())
         val unwanted = Tags.parseList(withoutTags.orEmpty())
         val under = path?.takeIf { it.isNotBlank() }?.let(::directory)
@@ -51,6 +53,7 @@ class TodoTools(private val project: Project) {
         val found = all.filter { item ->
             (statuses.isEmpty() || item.status in statuses) &&
                 (wantedPriority == null || item.priority == wantedPriority) &&
+                (wantedEffort == null || item.effort == wantedEffort) &&
                 item.tags.containsAll(wanted) && unwanted.none { it in item.tags } &&
                 (under == null || item.anchors.any { isUnder(it.path, under) }) &&
                 (!lost || item.anyLost) &&
@@ -93,17 +96,17 @@ class TodoTools(private val project: Project) {
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null, source: String? = null,
-        toDecide: String? = null,
+        toDecide: String? = null, effort: String? = null,
     ): String {
         return TodoJson.toText(TodoJson.encodeItem(storeCall {
-            store.create(draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide))
+            store.create(draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide, effort))
         }))
     }
 
     private fun draft(
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String?,
-        blockedBy: String?, duplicateOf: String?, parent: String?, source: String?, toDecide: String?,
+        blockedBy: String?, duplicateOf: String?, parent: String?, source: String?, toDecide: String?, effort: String?,
     ): Draft {
         if (title.isBlank()) throw TodoToolError("title must not be empty")
         val parsedPriority = priority?.let(::parsePriority) ?: Priority.P2
@@ -116,6 +119,7 @@ class TodoTools(private val project: Project) {
             title, details.orEmpty(), parsedPriority, waiting(Tags.parseList(tags.orEmpty()), toDecide), Author.AGENT, anchors,
             parseIds(blockedBy.orEmpty()), duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
             parent?.takeIf { it.isNotBlank() }?.let(::parseId), source, toDecide,
+            effort?.takeIf { it.isNotBlank() }?.let(::parseEffort),
         )
     }
 
@@ -128,8 +132,9 @@ class TodoTools(private val project: Project) {
         path: String? = null, startLine: Int? = null, endLine: Int? = null, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
         source: String? = null, fixedIn: String? = null, resolution: String? = null, toDecide: String? = null,
+        effort: String? = null,
     ): String {
-        val edit = edit(title, details, priority, tags, status, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide)
+        val edit = edit(title, details, priority, tags, status, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide, effort)
         val moves = path != null || startLine != null || endLine != null
         if (moves && places != null) throw TodoToolError("pass either places or path, startLine and endLine, not both")
         if (places != null) {
@@ -162,13 +167,14 @@ class TodoTools(private val project: Project) {
     private fun edit(
         title: String?, details: String?, priority: String?, tags: String?, status: String?,
         blockedBy: String?, duplicateOf: String?, parent: String?,
-        source: String?, fixedIn: String?, resolution: String?, toDecide: String?,
+        source: String?, fixedIn: String?, resolution: String?, toDecide: String?, effort: String?,
     ): (TodoItem) -> TodoItem {
         // An empty text takes the link away; a text left out leaves it as it is.
         val blockers = blockedBy?.let(::parseIds)
         val original = duplicateOf?.let { if (it.isBlank()) null else parseId(it) }
         val partOf = parent?.let { if (it.isBlank()) null else parseId(it) }
         val parsedPriority = priority?.let(::parsePriority)
+        val parsedEffort = effort?.let { if (it.isBlank()) null else parseEffort(it) }
         val parsedStatus = status?.let(::parseStatus)
         val parsedTags = tags?.let(Tags::parseList)
         return {
@@ -186,6 +192,7 @@ class TodoTools(private val project: Project) {
                 fixedIn = fixedIn ?: it.fixedIn,
                 resolution = resolution ?: it.resolution,
                 toDecide = toDecide ?: it.toDecide,
+                effort = if (effort != null) parsedEffort else it.effort,
             )
         }
     }
@@ -248,6 +255,7 @@ class TodoTools(private val project: Project) {
             val edit = edit(
                 text("title"), text("details"), text("priority"), text("tags"), text("status"), text("blockedBy"),
                 text("duplicateOf"), text("parent"), text("source"), text("fixedIn"), text("resolution"), text("toDecide"),
+                text("effort"),
             )
             // In a batch, what the agent has to say about an item goes with the change, in the same write.
             val comment = text("comment")
@@ -257,7 +265,7 @@ class TodoTools(private val project: Project) {
         val draft = draft(
             text("title") ?: throw TodoToolError("title is required for a new item"), text("details"), text("priority"),
             text("tags"), text("path"), line("startLine"), line("endLine"), text("places"),
-            text("blockedBy"), text("duplicateOf"), text("parent"), text("source"), text("toDecide"),
+            text("blockedBy"), text("duplicateOf"), text("parent"), text("source"), text("toDecide"), text("effort"),
         )
         return { it.create(draft) }
     }
@@ -357,6 +365,7 @@ class TodoTools(private val project: Project) {
         json.addProperty("id", item.id)
         json.addProperty("title", item.title)
         json.addProperty("priority", item.priority.json)
+        item.effort?.let { json.addProperty("effort", it.json) }
         json.addProperty("status", item.status.json)
         json.add("tags", JsonArray().also { a -> item.tags.forEach(a::add) })
         if (item.anchors.isNotEmpty()) json.addProperty("at", item.anchors.joinToString(", ") { it.place })
@@ -432,6 +441,9 @@ class TodoTools(private val project: Project) {
     private fun parsePriority(value: String): Priority =
         Priority.fromJson(value) ?: throw TodoToolError("priority must be one of p1, p2, p3")
 
+    private fun parseEffort(value: String): Effort =
+        Effort.fromJson(value) ?: throw TodoToolError("effort must be one of s, m, l")
+
     private fun parseStatus(value: String): Status =
         Status.fromJson(value) ?: throw TodoToolError("status must be one of open, in_progress, fixed, done, wont_fix")
 
@@ -440,10 +452,10 @@ class TodoTools(private val project: Project) {
         val LIST_FIELDS = setOf("tags", "blockedBy", "places")
         val DECISION_FIELDS = setOf("question", "options", "answer")
         val CREATE_FIELDS = setOf("title", "details", "priority", "tags") + PLACE_FIELDS +
-            setOf("blockedBy", "duplicateOf", "parent", "source", "toDecide")
+            setOf("blockedBy", "duplicateOf", "parent", "source", "toDecide", "effort")
         val UPDATE_FIELDS = setOf(
             "id", "title", "details", "priority", "tags", "status", "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
-            "toDecide", "comment",
+            "toDecide", "effort", "comment",
         )
     }
 }
