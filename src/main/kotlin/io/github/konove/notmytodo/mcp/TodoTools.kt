@@ -26,18 +26,30 @@ class TodoTools(private val project: Project) {
     private val service get() = TodoService.getInstance(project)
     private val store get() = service.store
 
-    fun list(status: String?, tag: String?, priority: String?, path: String?): String {
-        val wantedStatus = status?.let(::parseStatus)
-        val wantedPriority = priority?.let(::parsePriority)
-        val wantedTag = tag?.let { Tags.normalize(it) ?: throw TodoToolError("tag must be a single word") }
+    fun list(
+        status: String? = null, tags: String? = null, priority: String? = null, path: String? = null,
+        withoutTags: String? = null, text: String? = null, compact: Boolean = false,
+    ): String {
+        val statuses = words(status).map(::parseStatus)
+        val wantedPriority = priority?.takeIf { it.isNotBlank() }?.let(::parsePriority)
+        val wanted = Tags.parseList(tags.orEmpty())
+        val unwanted = Tags.parseList(withoutTags.orEmpty())
+        val under = path?.takeIf { it.isNotBlank() }?.let(::directory)
+        val needles = words(text)
         flushAnchors()
-        val array = JsonArray()
-        readable().filter { item ->
-            (wantedStatus == null || item.status == wantedStatus) &&
+        val found = readable().filter { item ->
+            (statuses.isEmpty() || item.status in statuses) &&
                 (wantedPriority == null || item.priority == wantedPriority) &&
-                (wantedTag == null || wantedTag in item.tags) &&
-                (path == null || item.anchor?.path == path)
-        }.forEach { array.add(summary(it)) }
+                item.tags.containsAll(wanted) && unwanted.none { it in item.tags } &&
+                (under == null || item.anchor?.path?.let { isUnder(it, under) } == true) &&
+                needles.all { item.title.contains(it, ignoreCase = true) || item.details.contains(it, ignoreCase = true) }
+        }
+        // One item per line: pretty printing would triple the size of a list that is meant to be read whole.
+        if (compact) {
+            return if (found.isEmpty()) "[]" else found.joinToString(",\n", "[\n", "\n]") { compactRow(it).toString() }
+        }
+        val array = JsonArray()
+        found.forEach { array.add(summary(it)) }
         return TodoJson.toText(array)
     }
 
@@ -120,6 +132,31 @@ class TodoTools(private val project: Project) {
         }
         return json
     }
+
+    private fun compactRow(item: TodoItem): JsonObject {
+        val json = JsonObject()
+        json.addProperty("id", item.id)
+        json.addProperty("title", item.title)
+        json.addProperty("priority", item.priority.json)
+        json.addProperty("status", item.status.json)
+        json.add("tags", JsonArray().also { a -> item.tags.forEach(a::add) })
+        item.anchor?.let { a ->
+            val lines = if (a.endLine == a.startLine) "${a.startLine}" else "${a.startLine}-${a.endLine}"
+            json.addProperty("at", "${a.path}:$lines")
+            if (a.lost) json.addProperty("lost", true)
+        }
+        return json
+    }
+
+    private fun words(value: String?): List<String> =
+        value.orEmpty().split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
+
+    /** A file or directory as anchors spell it: forward slashes, relative, no slash at the end. "" is the root. */
+    private fun directory(path: String): String =
+        path.trim().replace('\\', '/').removePrefix("./").trim('/').let { if (it == ".") "" else it }
+
+    private fun isUnder(file: String, directory: String): Boolean =
+        directory.isEmpty() || file == directory || file.startsWith("$directory/")
 
     private fun readable(): List<TodoItem> {
         store.error?.let { throw TodoToolError("${store.file} cannot be read: $it. Fix or delete that file.") }

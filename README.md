@@ -51,7 +51,7 @@ With the IDE's MCP server enabled, these tools are available:
 
 | Tool | Purpose |
 |---|---|
-| `todo_list` | List items, optionally filtered by status, tag, priority or file |
+| `todo_list` | List items, filtered by status, tags to have or not have, priority, file or directory, and text; `compact` leaves out details |
 | `todo_get` | One item with its current line range and code |
 | `todo_create` | Add an item, optionally attached to `path` and lines |
 | `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code |

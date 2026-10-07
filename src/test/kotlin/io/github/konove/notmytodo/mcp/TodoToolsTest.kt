@@ -83,6 +83,44 @@ class TodoToolsTest : BasePlatformTestCase() {
         failsWith("status") { tools.list("later", null, null, null) }
     }
 
+    fun `test list combines tags, directory, text and statuses`() {
+        val path = service.relativePath(myFixture.addFileToProject("foo/bar/c.txt", text).virtualFile)!!
+        val other = service.relativePath(myFixture.addFileToProject("foobar/c.txt", text).virtualFile)!!
+        val dir = path.removeSuffix("/bar/c.txt")
+        tools.create("Cache the path", "squad wide", null, "bugs td", path, 1, 2)
+        tools.create("Drop the CACHE", null, null, "bugs td needs-decision", path, 3, 3)
+        tools.create("Cache elsewhere", null, null, "bugs td", other, 1, 1)
+        tools.create("Rename it", "the cache key", null, "bugs", path, 4, 4)
+        tools.create("A note about the cache", null, null, "bugs td", null, null, null)
+        tools.update("T-4", null, null, null, null, "in_progress")
+        fun ids(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject.get("id").asString }
+
+        assertEquals(listOf("T-1"), ids(tools.list("open", "bugs, td", null, "$dir/", "needs-decision", "cache")))
+        assertEquals(listOf("T-1", "T-2", "T-4"), ids(tools.list(path = dir)))
+        assertEquals(listOf("T-1", "T-2", "T-4"), ids(tools.list(path = path)))
+        assertEquals(listOf("T-1", "T-4"), ids(tools.list(path = dir, withoutTags = "#needs-decision")))
+        assertEquals(listOf("T-1", "T-2", "T-4", "T-5"), ids(tools.list(text = "CACHE the")))
+        assertEquals(listOf("T-1"), ids(tools.list(text = "squad cache")))
+        assertEquals(listOf("T-4"), ids(tools.list(status = "in_progress done")))
+        assertEquals(5, ids(tools.list(status = "", tags = " ", path = "", text = "")).size)
+        failsWith("status") { tools.list(status = "open later") }
+    }
+
+    fun `test compact list has one short line per item`() {
+        val path = service.relativePath(myFixture.configureByText("c.txt", text).virtualFile)!!
+        tools.create("a", "long details", "p1", "perf", path, 2, 3)
+        tools.create("b", "more details", null, null, path, 4, 4)
+        tools.create("c", null, null, null, null, null, null)
+        val out = tools.list(compact = true)
+        assertEquals(5, out.lines().size)
+        val rows = JsonParser.parseString(out).asJsonArray.map { it.asJsonObject }
+        assertEquals(setOf("id", "title", "priority", "status", "tags", "at"), rows[0].keySet())
+        assertEquals("$path:2-3", rows[0].get("at").asString)
+        assertEquals("$path:4", rows[1].get("at").asString)
+        assertFalse(rows[2].has("at"))
+        assertEquals("[]", tools.list(status = "done", compact = true))
+    }
+
     fun `test get returns live lines and code after unsaved edits`() {
         val psi = myFixture.configureByText("d.txt", text)
         val path = service.relativePath(psi.virtualFile)!!

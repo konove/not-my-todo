@@ -16,15 +16,19 @@ class TodoToolset : McpToolset {
     @McpTool
     @McpDescription(
         "List the TODO items kept by the Not My TODO plugin for this project, in id order. " +
-            "Returns a JSON array. Anchored items include their file path and current line range but not the code; " +
-            "use todo_get for the code."
+            "All filters must match. Returns a JSON array. Anchored items include their file path and current " +
+            "line range but not the code; use todo_get for the code. Pass compact=true to survey many items, " +
+            "for example to check for a duplicate before todo_create."
     )
     suspend fun todo_list(
-        @McpDescription("Only items with this status: open, in_progress, fixed, done or wont_fix") status: String? = null,
-        @McpDescription("Only items with this tag") tag: String? = null,
+        @McpDescription("Only items with one of these statuses, separated by commas or spaces: open, in_progress, fixed, done, wont_fix") status: String? = null,
+        @McpDescription("Only items that have all of these tags, separated by commas or spaces") tags: String? = null,
         @McpDescription("Only items with this priority: p1, p2 or p3") priority: String? = null,
-        @McpDescription("Only items anchored in this file, as a path relative to the project root") path: String? = null,
-    ): String = call { it.list(status, tag, priority, path) }
+        @McpDescription("Only items anchored in this file or anywhere under this directory, as a path relative to the project root") path: String? = null,
+        @McpDescription("Leave out items that have any of these tags, separated by commas or spaces") withoutTags: String? = null,
+        @McpDescription("Only items whose title or details contain every one of these words, in any case") text: String? = null,
+        @McpDescription("One line per item with id, title, priority, status, tags and \"at\" (path:lines); no details") compact: Boolean = false,
+    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact) }
 
     @McpTool
     @McpDescription(
