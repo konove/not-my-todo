@@ -1,0 +1,201 @@
+package io.github.konove.notmytodo.store
+
+import io.github.konove.notmytodo.model.Anchor
+import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.Priority
+import io.github.konove.notmytodo.model.Status
+import io.github.konove.notmytodo.model.Tags
+import io.github.konove.notmytodo.model.TodoFile
+import io.github.konove.notmytodo.model.TodoFormatException
+import io.github.konove.notmytodo.model.TodoItem
+import io.github.konove.notmytodo.model.TodoJson
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import java.util.concurrent.CopyOnWriteArrayList
+
+class StoreException(message: String) : Exception(message)
+
+data class Draft(
+    val title: String,
+    val details: String = "",
+    val priority: Priority = Priority.P2,
+    val tags: List<String> = emptyList(),
+    val author: Author = Author.USER,
+    val anchor: Anchor? = null,
+)
+
+/**
+ * Holds the items of one `.todos/items.json`. The file is the source of truth: it is re-read
+ * before every change, and written whole after every change.
+ */
+class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
+    @Volatile
+    var file: Path = file
+        private set
+    private val listeners = CopyOnWriteArrayList<() -> Unit>()
+    private var data = TodoFile()
+    private var broken: String? = null
+    private var loaded = false
+    private var diskText: String? = null
+
+    init {
+        synchronized(this) { load() }
+    }
+
+    val items: List<TodoItem>
+        get() = synchronized(this) { if (broken != null) emptyList() else data.items }
+
+    val error: String?
+        get() = synchronized(this) { broken }
+
+    fun find(id: String): TodoItem? = items.firstOrNull { it.id == id }
+
+    fun addListener(l: () -> Unit) {
+        listeners.add(l)
+    }
+
+    fun removeListener(l: () -> Unit) {
+        listeners.remove(l)
+    }
+
+    fun reload(): Boolean {
+        val changed = synchronized(this) { load() }
+        if (changed) fire()
+        return changed
+    }
+
+    /**
+     * Switches to [newFile] and reads it. With [move], the current file is taken along first,
+     * unless there already is a file at the new place: that one is never overwritten.
+     */
+    fun moveTo(newFile: Path, move: Boolean = false) {
+        synchronized(this) {
+            if (newFile == file) return
+            if (move && Files.exists(file) && !Files.exists(newFile)) {
+                try {
+                    Files.createDirectories(newFile.parent)
+                    Files.move(file, newFile)
+                } catch (e: IOException) {
+                    throw StoreException("$file cannot be moved to $newFile: ${e.message}")
+                }
+            }
+            file = newFile
+            loaded = false
+            load()
+        }
+        fire()
+    }
+
+    fun create(draft: Draft): TodoItem = mutate { f ->
+        val title = draft.title.trim()
+        if (title.isEmpty()) throw StoreException("the title must not be empty")
+        val now = timestamp()
+        val item = TodoItem(
+            id = ItemId.of(f.nextId), title = title, details = draft.details, priority = draft.priority,
+            tags = Tags.normalizeAll(draft.tags), status = Status.OPEN, author = draft.author,
+            created = now, updated = now, anchor = draft.anchor,
+        )
+        f.copy(nextId = f.nextId + 1, items = f.items + item) to item
+    }
+
+    fun update(id: String, touch: Boolean = true, change: (TodoItem) -> TodoItem): TodoItem = mutate { f ->
+        val old = f.items.firstOrNull { it.id == id } ?: throw StoreException("there is no item with id $id")
+        val changed = change(old)
+        val edited = changed.copy(
+            id = old.id, author = old.author, created = old.created, updated = old.updated,
+            title = changed.title.trim(), tags = Tags.normalizeAll(changed.tags),
+        )
+        if (edited.title.isEmpty()) throw StoreException("the title must not be empty")
+        if (edited == old) return@mutate f to old
+        val saved = if (touch) edited.copy(updated = timestamp()) else edited
+        f.copy(items = f.items.map { if (it.id == id) saved else it }) to saved
+    }
+
+    fun delete(id: String) {
+        mutate { f ->
+            if (f.items.none { it.id == id }) throw StoreException("there is no item with id $id")
+            f.copy(items = f.items.filterNot { it.id == id }) to Unit
+        }
+    }
+
+    private fun <T> mutate(block: (TodoFile) -> Pair<TodoFile, T>): T {
+        var changed = false
+        try {
+            return synchronized(this) {
+                changed = load()
+                broken?.let { throw StoreException("$file cannot be read: $it") }
+                val (next, result) = block(data)
+                if (next != data) {
+                    write(next)
+                    data = next
+                    changed = true
+                }
+                result
+            }
+        } finally {
+            if (changed) fire()
+        }
+    }
+
+    /** Reads the file if it differs from what was last read or written. Returns true if state changed. */
+    private fun load(): Boolean {
+        val text = try {
+            if (Files.exists(file)) Files.readString(file) else null
+        } catch (e: IOException) {
+            val message = "cannot read the file: ${e.message}"
+            val changed = broken != message
+            broken = message
+            data = TodoFile()
+            loaded = false
+            return changed
+        }
+        if (loaded && text == diskText) return false
+        loaded = true
+        diskText = text
+        try {
+            data = if (text == null) TodoFile() else TodoJson.decode(text)
+            broken = null
+        } catch (e: TodoFormatException) {
+            data = TodoFile()
+            broken = e.message
+        }
+        return true
+    }
+
+    private fun write(next: TodoFile) {
+        val text = TodoJson.encode(next)
+        try {
+            Files.createDirectories(file.parent)
+            val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
+            Files.writeString(tmp, text)
+            try {
+                Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+            }
+        } catch (e: IOException) {
+            throw StoreException("$file cannot be written: ${e.message}")
+        }
+        diskText = text
+    }
+
+    private fun timestamp(): String = clock().truncatedTo(ChronoUnit.SECONDS).toString()
+
+    /** A listener that throws must not hide a change that is already on disk, or starve the others. */
+    private fun fire() {
+        for (listener in listeners) {
+            try {
+                listener()
+            } catch (e: Exception) {
+                System.getLogger(ItemStore::class.java.name)
+                    .log(System.Logger.Level.WARNING, "TODO store listener failed", e)
+            }
+        }
+    }
+}

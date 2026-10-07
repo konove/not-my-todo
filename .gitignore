@@ -1,0 +1,8 @@
+.gradle/
+.kotlin/
+.intellijPlatform/
+.idea/
+build/
+*.iml
+docs/superpowers/
+.todos/
