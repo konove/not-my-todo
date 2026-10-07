@@ -28,7 +28,7 @@ class TodoTools(private val project: Project) {
 
     fun list(
         status: String? = null, tags: String? = null, priority: String? = null, path: String? = null,
-        withoutTags: String? = null, text: String? = null, compact: Boolean = false,
+        withoutTags: String? = null, text: String? = null, compact: Boolean = false, lost: Boolean = false,
     ): String {
         val statuses = words(status).map(::parseStatus)
         val wantedPriority = priority?.takeIf { it.isNotBlank() }?.let(::parsePriority)
@@ -42,6 +42,7 @@ class TodoTools(private val project: Project) {
                 (wantedPriority == null || item.priority == wantedPriority) &&
                 item.tags.containsAll(wanted) && unwanted.none { it in item.tags } &&
                 (under == null || item.anchor?.path?.let { isUnder(it, under) } == true) &&
+                (!lost || item.anchor?.lost == true) &&
                 needles.all { item.title.contains(it, ignoreCase = true) || item.details.contains(it, ignoreCase = true) }
         }
         // One item per line: pretty printing would triple the size of a list that is meant to be read whole.

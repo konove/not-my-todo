@@ -106,6 +106,22 @@ class TodoToolsTest : BasePlatformTestCase() {
         failsWith("status") { tools.list(status = "open later") }
     }
 
+    fun `test list can return only items whose anchor is lost`() {
+        val path = service.relativePath(myFixture.configureByText("c.txt", text).virtualFile)!!
+        tools.create("found", null, null, "bugs", path, 1, 1)
+        tools.create("gone", null, null, "bugs", path, 3, 3)
+        tools.create("gone too", null, null, null, path, 4, 4)
+        tools.create("note", null, null, "bugs", null, null, null)
+        store.update("T-2") { it.copy(anchor = it.anchor!!.copy(lost = true)) }
+        store.update("T-3") { it.copy(anchor = it.anchor!!.copy(lost = true)) }
+        fun ids(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject.get("id").asString }
+
+        assertEquals(listOf("T-2", "T-3"), ids(tools.list(lost = true)))
+        assertEquals(listOf("T-2"), ids(tools.list(tags = "bugs", lost = true)))
+        assertEquals(listOf("T-2", "T-3"), ids(tools.list(lost = true, compact = true)))
+        assertEquals(4, ids(tools.list()).size)
+    }
+
     fun `test compact list has one short line per item`() {
         val path = service.relativePath(myFixture.configureByText("c.txt", text).virtualFile)!!
         tools.create("a", "long details", "p1", "perf", path, 2, 3)

@@ -17,7 +17,8 @@ class TodoToolset : McpToolset {
     @McpDescription(
         "List the TODO items kept by the Not My TODO plugin for this project, in id order. " +
             "All filters must match. Returns a JSON array. Anchored items include their file path and current " +
-            "line range but not the code; use todo_get for the code. Pass compact=true to survey many items, " +
+            "line range but not the code; use todo_get for the code. Pass lost=true after moving or rewriting code " +
+            "to find the items that need re-attaching. Pass compact=true to survey many items, " +
             "for example to check for a duplicate before todo_create."
     )
     suspend fun todo_list(
@@ -28,7 +29,8 @@ class TodoToolset : McpToolset {
         @McpDescription("Leave out items that have any of these tags, separated by commas or spaces") withoutTags: String? = null,
         @McpDescription("Only items whose title or details contain every one of these words, in any case") text: String? = null,
         @McpDescription("One line per item with id, title, priority, status, tags and \"at\" (path:lines); no details") compact: Boolean = false,
-    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact) }
+        @McpDescription("Only items whose anchor is lost: the code they were attached to can no longer be found. Re-attach them with todo_update") lost: Boolean = false,
+    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact, lost) }
 
     @McpTool
     @McpDescription(
