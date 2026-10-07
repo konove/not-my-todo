@@ -42,13 +42,20 @@ object Markdown {
 object ItemText {
     private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
-    fun html(item: TodoItem, zone: ZoneId = ZoneId.systemDefault()): String {
+    /** [grey] is the HTML colour of what is said about a comment, as against what the comment says. */
+    fun html(item: TodoItem, zone: ZoneId = ZoneId.systemDefault(), grey: String = "#6C707E"): String {
         val out = StringBuilder("<html><body>")
         if (item.details.isNotBlank()) out.append(Markdown.body(item.details))
-        item.comments.forEachIndexed { index, comment ->
-            if (index > 0 || item.details.isNotBlank()) out.append("<hr>")
+        if (item.comments.isNotEmpty()) {
+            val gap = if (item.details.isNotBlank()) 14 else 0
+            out.append("<p style=\"margin-top: ${gap}px\"><font color=\"$grey\"><b>Comments · ${item.comments.size}</b></font></p>")
+        }
+        item.comments.forEach { comment ->
             val who = if (comment.author == Author.AGENT) "Agent" else "Me"
-            out.append("<p><b>").append(StringUtil.escapeXmlEntities("$who · ${time(comment.time, zone)}")).append("</b></p>")
+            // The icons of Fix with Claude and of Needs My Decision: the same two parties.
+            val mark = if (comment.author == Author.AGENT) "AllIcons.Actions.Lightning" else "AllIcons.General.User"
+            val time = StringUtil.escapeXmlEntities(time(comment.time, zone))
+            out.append("<p style=\"margin-top: 10px\"><icon src=\"$mark\">&nbsp;<b>$who</b>&nbsp;&nbsp;<font color=\"$grey\">$time</font></p>")
             out.append(Markdown.body(comment.text))
         }
         return out.append("</body></html>").toString()
@@ -60,4 +67,17 @@ object ItemText {
     } catch (_: DateTimeParseException) {
         written
     }
+}
+
+/** A project path cut down to what tells files apart: where it starts, the last directory and the name. */
+object PathText {
+    /** The directories, shortened and ending in a slash, and the file name. */
+    fun split(path: String): Pair<String, String> {
+        val parts = path.split('/')
+        val dirs = parts.dropLast(1)
+        val shown = if (dirs.size > KEPT + 1) dirs.take(KEPT) + "…" + dirs.last() else dirs
+        return shown.joinToString("") { "$it/" } to parts.last()
+    }
+
+    private const val KEPT = 3
 }

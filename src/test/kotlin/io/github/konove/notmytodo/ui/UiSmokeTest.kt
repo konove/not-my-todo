@@ -118,6 +118,8 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(TodoService.getInstance(project).store.items.isEmpty())
     }
 
+    private fun DetailPane.tags() = metaStrip.components.filterIsInstance<javax.swing.JLabel>().map { it.text }
+
     override fun tearDown() {
         try {
             TodoSettings.getInstance().update(TodoSettings.Values())
@@ -159,10 +161,97 @@ class UiSmokeTest : BasePlatformTestCase() {
             comments = listOf(Comment(Author.AGENT, "2026-10-06T09:00:00Z", "a *short* note"), Comment(Author.USER, "then", "mine")),
         )
         val html = ItemText.html(item, java.time.ZoneId.of("Europe/Berlin"))
-        assertTrue(html, html.contains("Agent · 2026-10-06 11:00"))
-        assertTrue(html, html.contains("Me · then"))
+        assertTrue(html, html.contains("Comments · 2"))
+        assertTrue(html, html.contains("<icon src=\"AllIcons.Actions.Lightning\">&nbsp;<b>Agent</b>") && html.contains(">2026-10-06 11:00<"))
+        assertTrue(html, html.contains("<icon src=\"AllIcons.General.User\">&nbsp;<b>Me</b>") && html.contains(">then<"))
+        assertFalse(html, html.contains("<hr>"))
+        assertFalse(ItemText.html(item.copy(comments = emptyList())).contains("Comments"))
         assertTrue(html, html.contains("a <em>short</em> note"))
-        assertTrue(html.indexOf("the details") < html.indexOf("Agent"))
+        assertTrue(html.indexOf("the details") < html.indexOf("Comments"))
         assertEquals(1, Regex("<body>").findAll(html).count())
+    }
+
+    fun `test code sits beside the text when the pane is wide and under it when narrow`() {
+        val service = TodoService.getInstance(project)
+        val path = service.relativePath(myFixture.configureByText("a.txt", text).virtualFile)!!
+        val store = service.store
+        val anchored = store.create(Draft("anchored", details = "why", anchor = AnchorResolver.capture(path, text, 2, 2)))
+        val pane = DetailPane(project)
+        pane.show(anchored)
+        fun layout(width: Int) {
+            pane.setSize(width, 400)
+            pane.doLayout()
+            pane.columns.doLayout()
+        }
+        layout(1600)
+        assertTrue(pane.codeBox.x > pane.textColumn.x + pane.textColumn.width - 1)
+        assertEquals(pane.textColumn.y, pane.codeBox.y)
+        assertEquals(pane.textColumn.height, pane.codeBox.height)
+        assertTrue(pane.textColumn.width <= com.intellij.util.ui.JBUI.scale(760))
+        assertTrue(pane.codeBox.x + pane.codeBox.width == pane.columns.width - pane.columns.insets.right)
+        assertTrue(pane.whereLabel.text, pane.whereLabel.text.contains(">a.txt:2<"))
+        layout(500)
+        assertEquals(pane.textColumn.x, pane.codeBox.x)
+        assertTrue(pane.codeBox.y >= pane.textColumn.y + pane.textColumn.height)
+        pane.show(store.create(Draft("note", details = "why")))
+        layout(1600)
+        assertFalse(pane.codeBox.isVisible)
+        assertEquals(pane.columns.width - pane.columns.insets.left - pane.columns.insets.right, pane.textColumn.width)
+    }
+
+    fun `test the facts line does not end with a separator`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("a", tags = listOf("x")))
+        val pane = DetailPane(project)
+        pane.show(store.update(item.id) { it.copy(status = Status.FIXED) })
+        val fixed = pane.viewMeta.getCharSequence(false).toString().trim()
+        assertTrue(fixed, fixed.endsWith("note"))
+        assertFalse(fixed, fixed.contains("#"))
+        assertEquals(listOf("x"), pane.tags())
+        pane.show(store.update(item.id) { it.copy(tags = listOf("y", "z")) })
+        assertEquals(listOf("y", "z"), pane.tags())
+        pane.show(store.update(item.id) { it.copy(status = Status.OPEN) })
+        assertTrue(pane.viewMeta.getCharSequence(false).toString().trim().endsWith("agent can fix"))
+    }
+
+    fun `test a long path keeps its ends and the file name apart`() {
+        assertEquals("src/main/kotlin/…/mcp/" to "TodoTools.kt", PathText.split("src/main/kotlin/io/github/konove/notmytodo/mcp/TodoTools.kt"))
+        assertEquals("a/b/c/d/" to "e.txt", PathText.split("a/b/c/d/e.txt"))
+        assertEquals("a/b/c/…/e/" to "f.txt", PathText.split("a/b/c/d/e/f.txt"))
+        assertEquals("" to "a.txt", PathText.split("a.txt"))
+    }
+
+    fun `test the text column never lays its rows out wider than itself`() {
+        val service = TodoService.getInstance(project)
+        val path = service.relativePath(myFixture.configureByText("a.txt", text).virtualFile)!!
+        val store = service.store
+        val long = "A title long enough that it has to wrap when the column gets narrow, which it does here"
+        val tags = (1..12).map { "a-rather-long-tag-$it" }
+        val note = store.create(Draft(long, details = "why ".repeat(200), tags = tags))
+        val anchored = store.create(Draft(long, details = "why ".repeat(200), tags = tags, anchor = AnchorResolver.capture(path, text, 2, 2)))
+        val pane = DetailPane(project)
+        fun deep(c: java.awt.Container) {
+            // Without a window nothing is ever valid, so a resize does not invalidate by itself.
+            c.invalidate()
+            c.doLayout()
+            c.components.filterIsInstance<java.awt.Container>().forEach(::deep)
+        }
+        fun layout(width: Int) {
+            pane.setSize(width, 400)
+            repeat(3) {
+                deep(pane)
+                PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+            }
+        }
+        fun widest(c: java.awt.Container): Int =
+            c.components.filter { it.isVisible }.maxOfOrNull { it.x + it.width } ?: 0
+        pane.show(note)
+        layout(1600)
+        pane.show(anchored)
+        layout(1600)
+        assertTrue(pane.textColumn.components.filter { it.isVisible }.joinToString("\n") { "${it.javaClass.simpleName} ${it.bounds} pref=${it.preferredSize} min=${it.minimumSize}" }, widest(pane.textColumn) <= pane.textColumn.width)
+        layout(500)
+        assertTrue("${widest(pane.textColumn)} > ${pane.textColumn.width}", widest(pane.textColumn) <= pane.textColumn.width)
+        assertTrue(pane.viewTitle.height > pane.viewTitle.getFontMetrics(pane.viewTitle.font).height)
     }
 }

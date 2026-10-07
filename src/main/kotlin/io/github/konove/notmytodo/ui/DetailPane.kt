@@ -15,7 +15,9 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.BrowserHyperlinkListener
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SimpleColoredComponent
@@ -30,8 +32,10 @@ import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.HTMLEditorKitBuilder
+import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.intellij.util.ui.WrapLayout
 import io.github.konove.notmytodo.ide.AnchorTracker
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.ItemActions
@@ -45,6 +49,7 @@ import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.store.StoreException
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
@@ -55,6 +60,7 @@ import java.awt.Shape
 import java.awt.geom.RoundRectangle2D
 import javax.swing.Icon
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -122,8 +128,105 @@ private class RoundedBox : JPanel(BorderLayout()) {
     }
 }
 
+/** A tag, as a small rounded label. */
+private class Chip(tag: String) : JBLabel(tag) {
+    init {
+        font = JBUI.Fonts.smallFont()
+        foreground = UIUtil.getContextHelpForeground()
+        border = JBUI.Borders.empty(1, 7)
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = JBColor(Color(0xF0F1F4), Color(0x393B40))
+            g2.fillRoundRect(0, 0, width, height, height, height)
+        } finally {
+            g2.dispose()
+        }
+        super.paintComponent(g)
+    }
+}
+
+/**
+ * The row grid never makes a row narrower than its minimum, and what wraps gives the width it last
+ * had as its minimum. So what wraps asks for little, takes the width it is given, and has its
+ * height asked again once that width is known.
+ */
+private fun narrowed(size: Dimension): Dimension = size.apply { width = minOf(width, JBUI.scale(100)) }
+
+private class WrappedText : JBTextArea() {
+    override fun getPreferredSize(): Dimension = narrowed(super.getPreferredSize())
+
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    override fun setBounds(x: Int, y: Int, width: Int, height: Int) {
+        val resized = width != this.width
+        super.setBounds(x, y, width, height)
+        if (resized) SwingUtilities.invokeLater(::revalidate)
+    }
+}
+
+/** The facts and the tags in a line that goes on to the next when the column is narrow. */
+internal class MetaStrip : JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(2))) {
+    init {
+        isOpaque = false
+    }
+
+    override fun getPreferredSize(): Dimension = narrowed(super.getPreferredSize())
+
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    override fun setBounds(x: Int, y: Int, width: Int, height: Int) {
+        val resized = width != this.width
+        super.setBounds(x, y, width, height)
+        if (resized) SwingUtilities.invokeLater(::revalidate)
+    }
+}
+
+/** The text beside the code when the pane is wide enough for both, and above it when it is not. */
+internal class Columns(
+    private val text: JComponent, private val code: JComponent, private val textGrows: () -> Boolean,
+) : JPanel(null) {
+    init {
+        isOpaque = false
+        add(text)
+        add(code)
+    }
+
+    override fun getPreferredSize(): Dimension = JBUI.size(200, 120)
+
+    override fun doLayout() {
+        val area = Rectangle(0, 0, width, height).also { JBInsets.removeFrom(it, insets) }
+        if (!code.isVisible) {
+            text.bounds = area
+            return
+        }
+        val gap = JBUI.scale(16)
+        if (area.width >= JBUI.scale(WIDE)) {
+            // Lines of text longer than this are hard to read; the code takes what is over.
+            val textWidth = minOf((area.width * TEXT_SHARE).toInt(), JBUI.scale(TEXT_MAX))
+            text.setBounds(area.x, area.y, textWidth, area.height)
+            code.setBounds(area.x + textWidth + gap, area.y, area.width - textWidth - gap, area.height)
+        } else {
+            val half = (area.height - gap) / 2
+            val textHeight = if (textGrows()) half else minOf(text.preferredSize.height, half)
+            text.setBounds(area.x, area.y, area.width, textHeight)
+            code.setBounds(area.x, area.y + textHeight + gap, area.width, area.height - textHeight - gap)
+        }
+    }
+
+    private companion object {
+        const val WIDE = 900
+        const val TEXT_SHARE = 0.55
+        const val TEXT_MAX = 760
+    }
+}
+
 /**
  * The item selected in the panel: icon buttons over its title, facts, anchored code, details and comments.
+ * The code stands to the right of the rest, or under it in a narrow pane.
  * The Edit button swaps the title, facts and details for fields; Save writes them.
  */
 class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
@@ -139,10 +242,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private val priorityBox = ComboBox(Priority.entries.toTypedArray()).apply { toolTipText = "Priority" }
     private val statusBox = ComboBox(Status.entries.toTypedArray()).apply { toolTipText = "Status" }
     private val tagsField = JBTextField().apply { emptyText.text = "#tags" }
-    private val whereLabel = JBLabel().apply {
+    internal val whereLabel = JBLabel().apply {
         isOpaque = true
         background = JBColor(Color(0xF7F8FA), Color(0x393B40))
-        foreground = UIUtil.getContextHelpForeground()
         font = JBUI.Fonts.smallFont()
         border = JBUI.Borders.merge(
             JBUI.Borders.empty(4, 10),
@@ -150,8 +252,10 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             true,
         )
     }
-    private val viewTitle = readOnlyText().apply { font = font.deriveFont(Font.BOLD, font.size2D + 1f) }
-    private val viewMeta = SimpleColoredComponent().apply { isOpaque = false }
+    internal val viewTitle: JBTextArea = readOnlyText().apply { font = font.deriveFont(Font.BOLD, font.size2D + 1f) }
+    internal val viewMeta = SimpleColoredComponent().apply { isOpaque = false }
+    internal val metaStrip = MetaStrip().apply { add(viewMeta) }
+    private var shownTags: List<String>? = null
     internal val viewDetails = JEditorPane().apply {
         editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
         isEditable = false
@@ -175,7 +279,6 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         font = EditorUtil.getEditorFont()
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
     }
-    private lateinit var codeRow: Row
     private var shownCode: Triple<String, Int, Int>? = null
     private var shownTint: Color? = null
 
@@ -221,37 +324,37 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         add(toolbar.component, BorderLayout.CENTER)
         add(deleteToolbar.component, BorderLayout.EAST)
     }
-    private val codeBox = RoundedBox().apply {
+    internal val codeBox: JPanel = RoundedBox().apply {
         add(whereLabel, BorderLayout.NORTH)
         add(ScrollPaneFactory.createScrollPane(codeArea, true), BorderLayout.CENTER)
     }
 
-    private val form = panel {
+    internal val textColumn = panel {
         val title = row { cell(viewTitle).align(AlignX.FILL) }
-        val meta = row { cell(viewMeta) }
+        val meta = row { cell(metaStrip).align(AlignX.FILL) }
         val titleEdit = row { cell(titleField).align(AlignX.FILL) }
         val factsEdit = row {
             cell(priorityBox)
             cell(statusBox)
             cell(tagsField).align(AlignX.FILL).resizableColumn()
         }
-        codeRow = row { cell(codeBox).align(Align.FILL) }.resizableRow()
         viewDetailsRow = row { cell(viewDetailsScroll).align(Align.FILL) }.resizableRow()
-        val detailsEdit = row { cell(JBScrollPane(detailsArea)).align(Align.FILL) }
+        val detailsEdit = row { cell(JBScrollPane(detailsArea)).align(Align.FILL) }.resizableRow()
         viewRows = listOf(title, meta)
         editRows = listOf(titleEdit, factsEdit, detailsEdit)
     }
+    internal val columns = Columns(textColumn, codeBox) { editing || viewDetailsScroll.isVisible }
 
     init {
         toolbar.targetComponent = this
         deleteToolbar.targetComponent = this
-        form.border = JBUI.Borders.empty(6, 12)
+        columns.border = JBUI.Borders.empty(6, 12)
         add(toolbarRow, BorderLayout.NORTH)
-        add(form, BorderLayout.CENTER)
+        add(columns, BorderLayout.CENTER)
         show(null)
     }
 
-    private fun readOnlyText() = JBTextArea().apply {
+    private fun readOnlyText() = WrappedText().apply {
         isEditable = false
         isOpaque = false
         lineWrap = true
@@ -312,6 +415,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         editRows.forEach { it.visible(editing) }
         viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty()))
         toolbar.updateActionsAsync()
+        columns.revalidate()
         revalidate()
         repaint()
     }
@@ -326,7 +430,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     fun show(item: TodoItem?) {
         val shown = current?.takeIf { item != null && it.id == item.id }
         current = item
-        form.isVisible = item != null
+        columns.isVisible = item != null
         toolbarRow.isVisible = item != null
         if (item == null) return
         if (shown == null) editing = false
@@ -344,7 +448,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val text = item.details to item.comments
         if (text != shownDetails) {
             shownDetails = text
-            viewDetails.text = ItemText.html(item)
+            viewDetails.text = ItemText.html(item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
             viewDetails.caretPosition = 0
         }
         val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
@@ -356,24 +460,42 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             viewMeta.icon = PriorityColors.icon(item.priority)
             viewMeta.append("${item.priority.name}  ·  ", grey)
             viewMeta.append(item.status.label, StatusColors.attributes(item.status))
-            if (item.tags.isNotEmpty()) viewMeta.append("  ·  " + item.tags.joinToString(" ") { "#$it" }, grey)
             viewMeta.append("  ·  ${item.id}", grey)
             if (anchor == null) viewMeta.append("  ·  note", grey)
-            viewMeta.append("  ·  ", grey)
-            if (item.needsDecision) viewMeta.append("needs my decision", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-            else if (!item.isClosed && item.status != Status.FIXED) viewMeta.append("agent can fix", grey)
+            if (item.needsDecision) {
+                viewMeta.append("  ·  ", grey)
+                viewMeta.append("needs my decision", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+            } else if (!item.isClosed && item.status != Status.FIXED) {
+                viewMeta.append("  ·  agent can fix", grey)
+            }
         }
-        whereLabel.text = when {
-            anchor == null -> ""
-            anchor.lost -> "Anchor lost, was ${anchor.path}"
-            anchor.startLine == anchor.endLine -> "${anchor.path}:${anchor.startLine}"
-            else -> "${anchor.path}:${anchor.startLine}–${anchor.endLine}"
+        val tags = if (code) emptyList() else item.tags
+        if (tags != shownTags) {
+            shownTags = tags
+            metaStrip.components.filterIsInstance<Chip>().forEach(metaStrip::remove)
+            tags.forEach { metaStrip.add(Chip(it)) }
         }
+        whereLabel.text = anchor?.let(::where).orEmpty()
+        whereLabel.toolTipText = anchor?.path
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
-        codeRow.visible(anchor != null)
+        codeBox.isVisible = anchor != null
         if (anchor != null) showCode(anchor, PriorityColors.tint(item.priority))
         deleteToolbar.updateActionsAsync()
         showMode()
+    }
+
+    /** The anchor's place, with the directories greyed and shortened so the file name and lines stand out. */
+    private fun where(anchor: Anchor): String {
+        val (dirs, file) = PathText.split(anchor.path)
+        val lines = when {
+            anchor.lost -> ""
+            anchor.startLine == anchor.endLine -> ":${anchor.startLine}"
+            else -> ":${anchor.startLine}–${anchor.endLine}"
+        }
+        val grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground())
+        val before = (if (anchor.lost) "Anchor lost, was " else "") + dirs
+        return "<html><font color=\"$grey\">${StringUtil.escapeXmlEntities(before)}</font>" +
+            "<span>${StringUtil.escapeXmlEntities(file + lines)}</span></html>"
     }
 
     /**
