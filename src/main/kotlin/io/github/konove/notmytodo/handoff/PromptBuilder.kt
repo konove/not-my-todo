@@ -20,6 +20,9 @@ data class PromptOptions(
 
 /** Builds the text handed to an agent for one item. The files are the text of each anchored file, by its path. */
 object PromptBuilder {
+    private const val RESOLUTION =
+        "Pass a resolution too, which says in a sentence or two what you did, and fixedIn, the id of the commit, if you committed the work. "
+
     fun build(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions = PromptOptions()): String =
         one(item, files, doneWhen, options, options.extra)
 
@@ -68,6 +71,7 @@ object PromptBuilder {
             return out.toString()
         }
         out.append("\nWhen you have finished, call the todo_update tool with id \"${item.id}\" and status \"fixed\". ")
+        out.append(RESOLUTION)
         out.append("If that tool is not available, set \"status\": \"fixed\" for this item in ${options.itemsFile}. ")
         out.append("If you could not fix it, leave the status alone and explain why.\n")
         val tags = (item.tags + Tags.NEEDS_DECISION).distinct().joinToString(" ")
@@ -86,6 +90,7 @@ object PromptBuilder {
         val tags = (item.tags - Tags.NEEDS_DECISION).joinToString(" ")
         out.append("\nWhen the user has chosen, carry the choice out. ")
         out.append("When you have finished, call the todo_update tool with id \"${item.id}\", tags \"$tags\" and status \"fixed\". ")
+        out.append(RESOLUTION)
         out.append("If that tool is not available, remove the \"${Tags.NEEDS_DECISION}\" tag and set \"status\": \"fixed\" ")
         out.append("for this item in ${options.itemsFile}. ")
         out.append("If the user does not choose, leave the item as it is.\n")

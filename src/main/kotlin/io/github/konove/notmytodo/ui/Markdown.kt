@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ui
 
 import com.intellij.openapi.util.text.StringUtil
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.html.HtmlGenerator
@@ -38,16 +39,30 @@ object Markdown {
     }
 }
 
-/** What the detail pane shows under an item's facts: its details, then its comments, oldest first. */
+/**
+ * What the detail pane shows under an item's facts: where it came from, how it was fixed, its
+ * details, then its comments, oldest first.
+ */
 object ItemText {
     private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
     /** [grey] is the HTML colour of what is said about a comment, as against what the comment says. */
     fun html(item: TodoItem, zone: ZoneId = ZoneId.systemDefault(), grey: String = "#6C707E"): String {
         val out = StringBuilder("<html><body>")
-        if (item.details.isNotBlank()) out.append(Markdown.body(item.details))
+        item.source?.let { out.append("<p><font color=\"$grey\">From ${StringUtil.escapeXmlEntities(it)}</font></p>") }
+        if (item.fixedIn != null || item.resolution != null) {
+            val commit = item.fixedIn?.let { " in ${StringUtil.escapeXmlEntities(it)}" }.orEmpty()
+            val head = if (item.status == Status.WONT_FIX) "Closed" else "Fixed"
+            out.append("<p><font color=\"$grey\"><b>$head$commit</b></font></p>")
+            item.resolution?.let { out.append(Markdown.body(it)) }
+        }
+        val above = item.source != null || item.fixedIn != null || item.resolution != null
+        if (item.details.isNotBlank()) {
+            if (above) out.append("<p style=\"margin-top: 14px\"><font color=\"$grey\"><b>Details</b></font></p>")
+            out.append(Markdown.body(item.details))
+        }
         if (item.comments.isNotEmpty()) {
-            val gap = if (item.details.isNotBlank()) 14 else 0
+            val gap = if (item.details.isNotBlank() || above) 14 else 0
             out.append("<p style=\"margin-top: ${gap}px\"><font color=\"$grey\"><b>Comments · ${item.comments.size}</b></font></p>")
         }
         item.comments.forEach { comment ->

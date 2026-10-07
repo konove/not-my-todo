@@ -24,6 +24,10 @@ AI agent take items off your hands.
   parent in the list, which shows how many of them are closed; parts go one
   level deep. The detail pane shows the links, an id there goes to that item,
   and Edit changes them.
+- **Where from, and how fixed:** an item can say which commit or run it came
+  from, and once fixed, in which commit and what was done. Agents are asked
+  for both when they report an item fixed. The detail pane shows them above
+  the details, and Edit changes them.
 - **Anchors:** items follow their code as you edit, switch branches, or let an
   agent change files. If the code can no longer be found the item shows
   "Anchor lost"; select the code and press Re-attach to selection. An item can
@@ -62,8 +66,8 @@ With the IDE's MCP server enabled, these tools are available:
 |---|---|
 | `todo_list` | List items, filtered by status, tags to have or not have, priority, file or directory, text, `blocked` and `parent`; `compact` leaves out details |
 | `todo_get` | One item with its current line range and code |
-| `todo_create` | Add an item, optionally attached to `path` and lines, and linked with `blockedBy`, `duplicateOf` and `parent` |
-| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links |
+| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, and with the `source` commit or run it came from |
+| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of

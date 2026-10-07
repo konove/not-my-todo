@@ -224,4 +224,16 @@ class TodoJsonTest {
         assertEquals(listOf("T-6", "T-7"), links.children("T-1").map { it.id })
         assertEquals(emptyList<TodoItem>(), links.children("T-2"))
     }
+
+    @Test
+    fun `where an item came from and how it was fixed are kept, and left out when not said`() {
+        val fixed = item(2).copy(source = "30c6f6ae..e9ac6245", fixedIn = "93e7970", resolution = "Cached the path.")
+        val file = TodoFile(2, 3, listOf(item(1), fixed))
+        val text = TodoJson.encode(file)
+        assertEquals(file, TodoJson.decode(text))
+        assertEquals(3, Regex("\"source\"|\"fixedIn\"|\"resolution\"").findAll(text).count())
+        val blank = TodoJson.decode("""{"items":[{"id":"T-1","title":"a","source":" ","fixedIn":""}]}""").items[0]
+        assertNull(blank.source)
+        assertNull(blank.fixedIn)
+    }
 }

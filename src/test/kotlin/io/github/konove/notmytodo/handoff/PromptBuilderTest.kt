@@ -202,4 +202,12 @@ class PromptBuilderTest {
         assertTrue(one, one.contains("\nLocation: src/unit.txt, the whole file.\n"))
         assertFalse(one.contains("```"))
     }
+
+    @Test
+    fun `the agent is asked to say what it did and in which commit`() {
+        val p = PromptBuilder.build(TodoItem("T-5", "a"), emptyMap(), "")
+        assertTrue(p, p.contains("status \"fixed\". Pass a resolution too") && p.contains("fixedIn"))
+        val waiting = PromptBuilder.build(TodoItem("T-5", "a", tags = listOf("needs-decision")), emptyMap(), "")
+        assertTrue(waiting, waiting.contains("status \"fixed\". Pass a resolution too"))
+    }
 }

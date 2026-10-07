@@ -308,4 +308,25 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals(second.id, store.find(other.id)!!.duplicateOf)
         assertNull(opened)
     }
+
+    fun `test the detail pane shows where an item came from and how it was fixed`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("a", source = "30c6f6ae..e9ac6245"))
+        val fixed = store.update(item.id) { it.copy(status = Status.FIXED, fixedIn = "93e7970", resolution = "Cached the path.\nTwo lines.") }
+        val html = ItemText.html(fixed)
+        assertTrue(html, html.contains("From 30c6f6ae..e9ac6245") && html.contains("Fixed in 93e7970") && html.contains("Cached the path."))
+        assertFalse(html, html.contains("Details"))
+        assertTrue(ItemText.html(fixed.copy(status = Status.WONT_FIX, fixedIn = null)).contains("<b>Closed</b>"))
+        assertFalse(ItemText.html(item.copy(source = null)).contains("From"))
+
+        val pane = DetailPane(project)
+        pane.show(fixed)
+        assertTrue(pane.viewDetailsScroll.isVisible)
+        pane.historyFields[1].text = "abc1234"
+        pane.save()
+        val saved = store.find(item.id)!!
+        assertEquals("abc1234", saved.fixedIn)
+        assertEquals("Cached the path.\nTwo lines.", saved.resolution)
+        assertEquals("30c6f6ae..e9ac6245", saved.source)
+    }
 }

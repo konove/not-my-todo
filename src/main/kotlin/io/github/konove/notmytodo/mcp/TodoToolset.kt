@@ -64,7 +64,8 @@ class TodoToolset : McpToolset {
         @McpDescription("Ids of the items that must be closed before this one can be worked on, separated by commas or spaces") blockedBy: String? = null,
         @McpDescription("Id of the item that already says what this one says") duplicateOf: String? = null,
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own") parent: String? = null,
-    ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent) }
+        @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind, for example 30c6f6ae..e9ac6245. Put it here and not in details") source: String? = null,
+    ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source) }
 
     @McpTool
     @McpDescription(
@@ -72,7 +73,8 @@ class TodoToolset : McpToolset {
             "to add a finding or a progress note, use todo_comment instead. When you move or rewrite the code " +
             "an item is attached to, pass startLine (and path, if the file changed) to re-attach it; for an item attached to " +
             "several places, path says which one moves. Pass places to set the whole list of places instead. Set status to \"fixed\" when you " +
-            "have finished the work so the user can review it, or to \"wont_fix\" to close it without a change. " +
+            "have finished the work so the user can review it, or to \"wont_fix\" to close it without a change; either way pass " +
+            "resolution to say what you did or why, and with \"fixed\" pass fixedIn if you committed the work. " +
             "When an item says what another already says, set duplicateOf to that other item and status to \"wont_fix\". " +
             "Returns the updated item as JSON."
     )
@@ -90,7 +92,12 @@ class TodoToolset : McpToolset {
         @McpDescription("Ids of the items that must be closed before this one can be worked on, separated by commas or spaces, replacing the ones it has. Pass an empty text to unblock it") blockedBy: String? = null,
         @McpDescription("Id of the item that already says what this one says. Pass an empty text to take the link away") duplicateOf: String? = null,
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own. Pass an empty text to take it out of its parent") parent: String? = null,
-    ): String = call { it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent) }
+        @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind. Pass an empty text to take it away") source: String? = null,
+        @McpDescription("Id of the commit that fixed the item, if the work is committed. Pass an empty text to take it away") fixedIn: String? = null,
+        @McpDescription("What you did to fix the item, or why it is closed without a change, as Markdown in a sentence or two. Pass an empty text to take it away") resolution: String? = null,
+    ): String = call {
+        it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, fixedIn, resolution)
+    }
 
     @McpTool
     @McpDescription(

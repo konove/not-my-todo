@@ -89,7 +89,7 @@ class TodoTools(private val project: Project) {
     fun create(
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String? = null,
-        blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
+        blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null, source: String? = null,
     ): String {
         if (title.isBlank()) throw TodoToolError("title must not be empty")
         val parsedPriority = priority?.let(::parsePriority) ?: Priority.P2
@@ -101,7 +101,7 @@ class TodoTools(private val project: Project) {
         val draft = Draft(
             title, details.orEmpty(), parsedPriority, Tags.parseList(tags.orEmpty()), Author.AGENT, anchors,
             parseIds(blockedBy.orEmpty()), duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
-            parent?.takeIf { it.isNotBlank() }?.let(::parseId),
+            parent?.takeIf { it.isNotBlank() }?.let(::parseId), source,
         )
         return TodoJson.toText(TodoJson.encodeItem(storeCall { store.create(draft) }))
     }
@@ -110,6 +110,7 @@ class TodoTools(private val project: Project) {
         id: String, title: String?, details: String?, priority: String?, tags: String?, status: String?,
         path: String? = null, startLine: Int? = null, endLine: Int? = null, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
+        source: String? = null, fixedIn: String? = null, resolution: String? = null,
     ): String {
         // An empty text takes the link away; a text left out leaves it as it is.
         val blockers = blockedBy?.let(::parseIds)
@@ -154,6 +155,10 @@ class TodoTools(private val project: Project) {
                     blockedBy = blockers ?: it.blockedBy,
                     duplicateOf = if (duplicateOf != null) original else it.duplicateOf,
                     parent = if (parent != null) partOf else it.parent,
+                    // The store reads an empty text as none.
+                    source = source ?: it.source,
+                    fixedIn = fixedIn ?: it.fixedIn,
+                    resolution = resolution ?: it.resolution,
                 )
             }
         }

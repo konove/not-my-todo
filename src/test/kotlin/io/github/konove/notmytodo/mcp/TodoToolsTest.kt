@@ -325,4 +325,23 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertFalse(JsonParser.parseString(tools.list(compact = true)).asJsonArray[2].asJsonObject.has("blockedBy"))
         assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
     }
+
+    fun `test source, commit and resolution are set, kept and taken away`() {
+        tools.create("leftover", null, null, null, null, null, null, source = "30c6f6ae..e9ac6245")
+        assertEquals("30c6f6ae..e9ac6245", store.find("T-1")!!.source)
+        val json = JsonParser.parseString(
+            tools.update("T-1", null, null, null, null, "fixed", fixedIn = "93e7970", resolution = "Cached the path.")
+        ).asJsonObject
+        assertEquals("93e7970", json.get("fixedIn").asString)
+        assertEquals("Cached the path.", json.get("resolution").asString)
+        tools.update("T-1", "renamed", null, null, null, null)
+        assertEquals("Cached the path.", store.find("T-1")!!.resolution)
+        assertEquals("30c6f6ae..e9ac6245", store.find("T-1")!!.source)
+        assertEquals("93e7970", JsonParser.parseString(tools.list()).asJsonArray[0].asJsonObject.get("fixedIn").asString)
+        tools.update("T-1", null, null, null, null, "open", source = "", fixedIn = "", resolution = "")
+        val item = store.find("T-1")!!
+        assertNull(item.source)
+        assertNull(item.fixedIn)
+        assertNull(item.resolution)
+    }
 }

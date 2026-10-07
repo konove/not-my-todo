@@ -22,7 +22,7 @@ object TodoJson {
     private val fileKeys = setOf("version", "nextId", "items")
     private val itemKeys = setOf(
         "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor", "anchors",
-        "blockedBy", "duplicateOf", "parent",
+        "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
     )
     private val commentKeys = setOf("author", "time", "text")
     private val anchorKeys = setOf("path", "startLine", "endLine", "text", "before", "after", "lost")
@@ -56,6 +56,9 @@ object TodoJson {
         if (item.blockedBy.isNotEmpty()) o.add("blockedBy", strings(item.blockedBy))
         item.duplicateOf?.let { o.addProperty("duplicateOf", it) }
         item.parent?.let { o.addProperty("parent", it) }
+        item.source?.let { o.addProperty("source", it) }
+        item.fixedIn?.let { o.addProperty("fixedIn", it) }
+        item.resolution?.let { o.addProperty("resolution", it) }
         if (item.comments.isNotEmpty()) {
             val comments = JsonArray()
             item.comments.forEach { c ->
@@ -140,6 +143,7 @@ object TodoJson {
             created = o.str("created").orEmpty(), updated = o.str("updated").orEmpty(), comments = comments,
             anchors = anchors, blockedBy = o.strList("blockedBy").mapNotNull(ItemId::normalize).distinct(),
             duplicateOf = o.str("duplicateOf")?.let(ItemId::normalize), parent = o.str("parent")?.let(ItemId::normalize),
+            source = o.text("source"), fixedIn = o.text("fixedIn"), resolution = o.text("resolution"),
             unknown = o.unknown(itemKeys),
         )
     }
@@ -173,6 +177,9 @@ object TodoJson {
 
     private fun JsonObject.str(key: String): String? =
         get(key)?.takeIf { it.isJsonPrimitive }?.asString
+
+    /** A text that says something: null when it is missing or blank. */
+    private fun JsonObject.text(key: String): String? = str(key)?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun JsonObject.int(key: String): Int? {
         val e = get(key)?.takeIf { it.isJsonPrimitive } ?: return null

@@ -257,6 +257,13 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private val duplicateField = JBTextField().apply { emptyText.text = "Duplicate of" }
     private val parentField = JBTextField().apply { emptyText.text = "Part of" }
 
+    private val sourceField = JBTextField().apply { emptyText.text = "From: commit or run" }
+    private val fixedInField = JBTextField().apply { emptyText.text = "Fixed in: commit" }
+    private val resolutionField = JBTextField().apply { emptyText.text = "Resolution: what was done" }
+
+    /** Source, fixed in, resolution. */
+    internal val historyFields get() = listOf(sourceField, fixedInField, resolutionField)
+
     /** Blocked by, duplicate of, part of. */
     internal val linkFields get() = listOf(blockedField, duplicateField, parentField)
 
@@ -313,7 +320,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         // The row takes the height the pane has left; without this it asks for the whole text's.
         preferredSize = JBUI.size(200, 60)
     }
-    private var shownDetails: Pair<String, List<Comment>>? = null
+    private var shownDetails: String? = null
     private var editing = false
     private lateinit var viewRows: List<Row>
     private lateinit var editRows: List<Row>
@@ -391,10 +398,15 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             cell(duplicateField)
             cell(parentField)
         }
+        val historyEdit = row {
+            cell(sourceField)
+            cell(fixedInField)
+            cell(resolutionField).align(AlignX.FILL).resizableColumn()
+        }
         viewDetailsRow = row { cell(viewDetailsScroll).align(Align.FILL) }.resizableRow()
         val detailsEdit = row { cell(JBScrollPane(detailsArea)).align(Align.FILL) }.resizableRow()
         viewRows = listOf(title, meta)
-        editRows = listOf(titleEdit, factsEdit, linksEdit, detailsEdit)
+        editRows = listOf(titleEdit, factsEdit, linksEdit, historyEdit, detailsEdit)
     }
     internal val columns = Columns(textColumn, codeBox) { editing || viewDetailsScroll.isVisible }
 
@@ -467,7 +479,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         viewRows.forEach { it.visible(!editing) }
         editRows.forEach { it.visible(editing) }
         viewLinksRow.visible(!editing && viewLinks.iterator().hasNext())
-        viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty()))
+        viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty() || item.source != null || item.fixedIn != null || item.resolution != null))
         toolbar.updateActionsAsync()
         columns.revalidate()
         revalidate()
@@ -502,16 +514,19 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (shown == null || blockedField.text == shown.blockedBy.joinToString(" ")) blockedField.text = item.blockedBy.joinToString(" ")
         if (shown == null || duplicateField.text == shown.duplicateOf.orEmpty()) duplicateField.text = item.duplicateOf.orEmpty()
         if (shown == null || parentField.text == shown.parent.orEmpty()) parentField.text = item.parent.orEmpty()
+        if (shown == null || sourceField.text == oneLine(shown.source)) sourceField.text = oneLine(item.source)
+        if (shown == null || fixedInField.text == oneLine(shown.fixedIn)) fixedInField.text = oneLine(item.fixedIn)
+        if (shown == null || resolutionField.text == oneLine(shown.resolution)) resolutionField.text = oneLine(item.resolution)
         val code = CodeTodos.isCode(item)
         val links = if (code) Links.NONE else Links(store.items)
         showLinks(item, links)
         val anchor = item.anchors.getOrNull(anchorIndex)
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
-        val text = item.details to item.comments
+        val text = ItemText.html(item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
         if (text != shownDetails) {
             shownDetails = text
-            viewDetails.text = ItemText.html(item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
+            viewDetails.text = text
             viewDetails.caretPosition = 0
         }
         val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
@@ -642,6 +657,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
 
+    /** [text] as a one-line field shows it, to tell whether I changed what the field was given. */
+    private fun oneLine(text: String?): String = text.orEmpty().replace('\n', ' ')
+
     private fun track() {
         val item = current ?: return
         CaptureDialog(project, CodeTodos.trackedAnchor(project, item), CodeTodos.trackedTitle(item)).show()
@@ -658,6 +676,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             val blockedBy = ItemId.parseList(blockedField.text)
             val duplicateOf = ItemId.parseList(duplicateField.text).also { require(it.size < 2) { "an item is a duplicate of one item" } }.firstOrNull()
             val parent = ItemId.parseList(parentField.text).also { require(it.size < 2) { "an item is a part of one item" } }.firstOrNull()
+            val source = sourceField.text
+            val fixedIn = fixedInField.text
+            val resolution = resolutionField.text
             // Only the fields I edited are written; the rest keep whatever is in the file now.
             val saved = store.update(item.id) {
                 it.copy(
@@ -669,6 +690,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
                     blockedBy = if (blockedBy != item.blockedBy) blockedBy else it.blockedBy,
                     duplicateOf = if (duplicateOf != item.duplicateOf) duplicateOf else it.duplicateOf,
                     parent = if (parent != item.parent) parent else it.parent,
+                    source = if (source != oneLine(item.source)) source else it.source,
+                    fixedIn = if (fixedIn != oneLine(item.fixedIn)) fixedIn else it.fixedIn,
+                    resolution = if (resolution != oneLine(item.resolution)) resolution else it.resolution,
                 )
             }
             current = null

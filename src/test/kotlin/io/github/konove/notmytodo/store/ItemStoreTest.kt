@@ -262,4 +262,16 @@ class ItemStoreTest {
         assertNull(left.duplicateOf)
         assertNull(left.parent)
     }
+
+    @Test
+    fun `a blank source, commit or resolution is none`() {
+        val s = store()
+        assertNull(s.create(Draft("a", source = " ")).source)
+        assertEquals("abc..def", s.create(Draft("b", source = " abc..def ")).source)
+        val fixed = s.update("T-1") { it.copy(status = Status.FIXED, fixedIn = " 93e7970 ", resolution = "Done.\n") }
+        assertEquals("93e7970", fixed.fixedIn)
+        assertEquals("Done.", fixed.resolution)
+        assertNull(s.update("T-1") { it.copy(fixedIn = "", resolution = " ") }.resolution)
+        assertNull(store().find("T-1")!!.fixedIn)
+    }
 }

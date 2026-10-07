@@ -32,6 +32,7 @@ data class Draft(
     val blockedBy: List<String> = emptyList(),
     val duplicateOf: String? = null,
     val parent: String? = null,
+    val source: String? = null,
 )
 
 /**
@@ -105,6 +106,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             tags = Tags.normalizeAll(draft.tags), status = Status.OPEN, author = draft.author,
             created = now, updated = now, anchors = draft.anchors,
             blockedBy = draft.blockedBy.distinct(), duplicateOf = draft.duplicateOf, parent = draft.parent,
+            source = draft.source.said(),
         )
         checkLinks(item, f.items + item)
         f.copy(nextId = f.nextId + 1, items = f.items + item) to item
@@ -116,6 +118,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         val edited = changed.copy(
             id = old.id, author = old.author, created = old.created, updated = old.updated,
             title = changed.title.trim(), tags = Tags.normalizeAll(changed.tags), blockedBy = changed.blockedBy.distinct(),
+            source = changed.source.said(), fixedIn = changed.fixedIn.said(), resolution = changed.resolution.said(),
             // A change may build the item or an anchor anew; what a newer plugin wrote stays either way.
             // An anchor built anew has no unknown fields of its own and takes those of the one it replaces.
             unknown = old.unknown,
@@ -258,6 +261,9 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         }
         diskText = text
     }
+
+    /** A text with something in it, trimmed; a blank one is as good as none. */
+    private fun String?.said(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun timestamp(): String = clock().truncatedTo(ChronoUnit.SECONDS).toString()
 

@@ -96,6 +96,12 @@ data class TodoItem(
     val duplicateOf: String? = null,
     /** The id of the item this one is a part of. A parent has no parent of its own. */
     val parent: String? = null,
+    /** Where the item came from: the commit, the range of commits or the run that left it behind. */
+    val source: String? = null,
+    /** The commit that fixed it. */
+    val fixedIn: String? = null,
+    /** What was done to fix it, or why it was closed without a change; Markdown, a sentence or two. */
+    val resolution: String? = null,
     /** The JSON fields this version does not know, written back as they came. */
     val unknown: Map<String, JsonElement> = emptyMap(),
 ) {
