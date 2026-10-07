@@ -38,6 +38,7 @@ class TodoToolset : McpToolset {
     @McpDescription(
         "Get one TODO item by id (for example T-12) as JSON, with its details, its comments and, for an item anchored to code, " +
             "its anchors, each with the current line range and the code at those lines. An anchor without lines is on the whole file. " +
+            "toDecide is what the user has to decide, and decisions what the user was asked and answered. " +
             "Its links to other items are blockedBy, duplicateOf and parent; blocked is true while a blocker is still open, " +
             "and children lists the items that have this one as their parent."
     )
@@ -56,7 +57,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Short description of what needs doing") title: String,
         @McpDescription("Longer explanation") details: String? = null,
         @McpDescription("p1, p2 or p3; defaults to p2") priority: String? = null,
-        @McpDescription("Tags separated by commas or spaces. Add needs-decision when the user has to decide something before this can be fixed") tags: String? = null,
+        @McpDescription("Tags separated by commas or spaces. When the user has to decide something before this can be fixed, pass toDecide and not the needs-decision tag alone") tags: String? = null,
         @McpDescription("File to attach to, as a path relative to the project root") path: String? = null,
         @McpDescription("First line of the code, 1-based; leave out to attach to the whole file") startLine: Int? = null,
         @McpDescription("Last line of the code, 1-based and inclusive; defaults to startLine") endLine: Int? = null,
@@ -65,7 +66,8 @@ class TodoToolset : McpToolset {
         @McpDescription("Id of the item that already says what this one says") duplicateOf: String? = null,
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own") parent: String? = null,
         @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind, for example 30c6f6ae..e9ac6245. Put it here and not in details") source: String? = null,
-    ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source) }
+        @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided") toDecide: String? = null,
+    ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide) }
 
     @McpTool
     @McpDescription(
@@ -83,7 +85,7 @@ class TodoToolset : McpToolset {
         @McpDescription("New title") title: String? = null,
         @McpDescription("New details") details: String? = null,
         @McpDescription("p1, p2 or p3") priority: String? = null,
-        @McpDescription("Replacement tags separated by commas or spaces. Include needs-decision when the user has to decide something before this can be fixed, and then say what with todo_comment; do not fix items that carry it") tags: String? = null,
+        @McpDescription("Replacement tags separated by commas or spaces. An item tagged needs-decision waits for the user: do not fix it. To make an item wait, pass toDecide") tags: String? = null,
         @McpDescription("open, in_progress, fixed, done or wont_fix") status: String? = null,
         @McpDescription("File to re-attach to, as a path relative to the project root; defaults to the item's current file") path: String? = null,
         @McpDescription("First line of the code to re-attach to, 1-based; leave out with a path to attach to the whole file") startLine: Int? = null,
@@ -95,13 +97,15 @@ class TodoToolset : McpToolset {
         @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind. Pass an empty text to take it away") source: String? = null,
         @McpDescription("Id of the commit that fixed the item, if the work is committed. Pass an empty text to take it away") fixedIn: String? = null,
         @McpDescription("What you did to fix the item, or why it is closed without a change, as Markdown in a sentence or two. Pass an empty text to take it away") resolution: String? = null,
+        @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided. Pass an empty text to take it away") toDecide: String? = null,
     ): String = call {
-        it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, fixedIn, resolution)
+        it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide)
     }
 
     @McpTool
     @McpDescription(
-        "Add a comment to a TODO item: a finding, a progress note or a question for the user. The user is shown " +
+        "Add a comment to a TODO item: a finding or a progress note. What the user has to decide goes in toDecide " +
+            "of todo_update instead. The user is shown " +
             "a comment on an item that is in progress or tagged needs-decision as soon as it is added. It is appended to " +
             "the item's comments with your authorship and the time, and nothing else on the item is changed, so " +
             "prefer it to rewriting details with todo_update. Returns the updated item as JSON."
@@ -126,9 +130,25 @@ class TodoToolset : McpToolset {
             "JSON array of objects, for example [{\"title\": \"Cache the index\", \"priority\": \"p3\", \"tags\": \"perf\", " +
                 "\"path\": \"src/Index.kt\", \"startLine\": 12}, {\"id\": \"T-3\", \"tags\": \"perf mcp\"}, " +
                 "{\"id\": \"T-4\", \"status\": \"wont_fix\", \"resolution\": \"...\"}, " +
-                "{\"id\": \"T-5\", \"tags\": \"needs-decision\", \"comment\": \"Which of the two?\"}]"
+                "{\"id\": \"T-5\", \"toDecide\": \"Which of the two?\"}]"
         ) items: String,
     ): String = call { it.batch(items) }
+
+    @McpTool
+    @McpDescription(
+        "Record what the user decided about a TODO item: call it when you have asked the user what an item tagged " +
+            "needs-decision waits for and the user has answered, before you do the work. The questions, the options and the " +
+            "answers are appended to the item's decisions with the time; the tags and the status are not changed. " +
+            "Returns the updated item as JSON."
+    )
+    suspend fun todo_decided(
+        @McpDescription("Item id, for example T-12") id: String,
+        @McpDescription(
+            "JSON array with one object for each question you asked: question, options (an array of the answers you offered, " +
+                "left out when you offered none) and answer (the option the user chose or what the user typed, in the user's words), " +
+                "for example [{\"question\": \"Which license?\", \"options\": [\"MIT\", \"Apache 2.0\"], \"answer\": \"MIT\"}]"
+        ) decisions: String,
+    ): String = call { it.decided(id, decisions) }
 
     private suspend fun call(block: (TodoTools) -> String): String {
         val project = currentCoroutineContext().project

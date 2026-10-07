@@ -236,4 +236,30 @@ class TodoJsonTest {
         assertNull(blank.source)
         assertNull(blank.fixedIn)
     }
+
+    @Test
+    fun `what is to be decided and what was decided survive a round trip`() {
+        val decided = Decision("Per unit or per cell?", listOf("Per unit", "Per cell"), "Per cell", "2026-10-06T09:00:00Z")
+        val file = TodoFile(2, 2, listOf(item(1).copy(toDecide = "How paths are shared", decisions = listOf(decided))))
+        val text = TodoJson.encode(file)
+        assertEquals(file, TodoJson.decode(text))
+        assertTrue(text.contains("\"toDecide\": \"How paths are shared\""))
+        assertFalse(TodoJson.encode(TodoFile(2, 2, listOf(item(1)))).contains("ecide"))
+    }
+
+    @Test
+    fun `a decision keeps its unknown fields, and what is not a decision is rejected`() {
+        val text = """{"items":[{"id":"T-1","title":"a","toDecide":" ","decisions":[
+            {"question":"q","options":["x"],"answer":"x","time":"t","by":"phone"},{"question":"r","answer":"y"}]}]}"""
+        val file = TodoJson.decode(text)
+        val item = file.items.single()
+        assertNull(item.toDecide)
+        assertEquals(setOf("by"), item.decisions[0].unknown.keys)
+        assertEquals(emptyList<String>(), item.decisions[1].options)
+        assertTrue(item.unknown.isEmpty())
+        assertTrue(TodoJson.encode(file).contains("\"by\": \"phone\""))
+        assertThrows(TodoFormatException::class.java) {
+            TodoJson.decode("""{"items":[{"id":"T-1","title":"a","decisions":["x"]}]}""")
+        }
+    }
 }

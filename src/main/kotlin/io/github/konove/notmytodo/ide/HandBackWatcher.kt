@@ -12,7 +12,7 @@ import io.github.konove.notmytodo.handoff.HandBacks
 import io.github.konove.notmytodo.model.TodoItem
 import java.nio.file.Path
 
-/** Shows a balloon when an agent comments on an item that waits for me or that is in progress. */
+/** Shows a balloon when an agent comments on an item that waits for me or that is in progress, or says what I have to decide. */
 @Service(Service.Level.PROJECT)
 class HandBackWatcher(private val project: Project) : Disposable {
     // Held, not looked up, so that it can still be let go of when the project is closing.
@@ -56,7 +56,7 @@ class HandBackWatcher(private val project: Project) : Disposable {
         val content: String
         if (backs.size == 1) {
             title = if (deciding == 1) "${first.id} needs your decision" else "The agent left a comment on ${first.id}"
-            val said = StringUtil.shortenTextWithEllipsis(backs.first().comment.text.lines().joinToString(" ") { it.trim() }, MAX_SHOWN, 0)
+            val said = StringUtil.shortenTextWithEllipsis(backs.first().said.lines().joinToString(" ") { it.trim() }, MAX_SHOWN, 0)
             content = StringUtil.escapeXmlEntities(first.title) + "<br>" + StringUtil.escapeXmlEntities(said)
         } else {
             title = when (deciding) {

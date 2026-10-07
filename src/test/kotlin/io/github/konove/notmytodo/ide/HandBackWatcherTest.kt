@@ -34,6 +34,13 @@ class HandBackWatcherTest : BasePlatformTestCase() {
         assertEquals(listOf("Show"), shown.single().actions.map { it.templateText })
     }
 
+    fun `test what an agent says is to be decided shows a balloon`() {
+        val item = store.create(Draft("pick a license"))
+        store.update(item.id) { it.copy(tags = listOf("needs-decision"), toDecide = "MIT or Apache?") }
+        assertEquals(listOf("${item.id} needs your decision"), shown.map { it.title })
+        assertEquals("pick a license<br>MIT or Apache?", shown.single().content)
+    }
+
     fun `test a note on an item in progress shows a balloon, and my own comment none`() {
         val item = store.create(Draft("cache findPath"))
         store.comment(item.id, Author.AGENT, "not sent off yet")

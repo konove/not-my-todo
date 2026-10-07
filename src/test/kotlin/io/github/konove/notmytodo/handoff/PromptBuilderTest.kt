@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.handoff
 
 import io.github.konove.notmytodo.model.Comment
+import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.model.Priority
@@ -170,10 +171,11 @@ class PromptBuilderTest {
     }
 
     @Test
-    fun `an agent that needs my decision is told to tag the item and ask in a comment`() {
+    fun `an agent that needs my decision is told to say what has to be decided on the item`() {
         val p = PromptBuilder.build(anchored, files, "")
-        assertTrue(p, p.contains("do not guess and do not change the code. Call todo_update with id \"T-14\" and tags \"perf pathing needs-decision\", "))
-        assertTrue(p, p.contains("then todo_comment with what has to be decided, and leave the status and the details alone.\n"))
+        assertTrue(p, p.contains("do not guess and do not change the code. Call todo_update with id \"T-14\" and toDecide, "))
+        assertTrue(p, p.contains("which says what has to be decided; that marks the item as waiting for the user. Leave the status and the details alone.\n"))
+        assertFalse(p.contains("todo_comment"))
     }
 
     @Test
@@ -216,5 +218,30 @@ class PromptBuilderTest {
         assertTrue(p, p.contains("status \"fixed\". Pass a resolution too") && p.contains("fixedIn"))
         val waiting = PromptBuilder.build(TodoItem("T-5", "a", tags = listOf("needs-decision")), emptyMap(), "")
         assertTrue(waiting, waiting.contains("status \"fixed\". Pass a resolution too"))
+    }
+
+    @Test
+    fun `an item that waits says what is to be decided and has the answers recorded before any work`() {
+        val waiting = anchored.copy(tags = listOf("perf", "needs-decision"), toDecide = "Per unit or per cell?")
+        val p = PromptBuilder.build(waiting, files, "")
+        assertTrue(p, p.contains("\nTo decide:\nPer unit or per cell?\n"))
+        assertTrue(p.indexOf("Details:") < p.indexOf("To decide:") && p.indexOf("To decide:") < p.indexOf("Location:"))
+        assertTrue(p, p.contains("before you change anything, call the todo_decided tool with id \"T-14\""))
+        assertTrue(p.indexOf("wait for the answer") < p.indexOf("todo_decided") && p.indexOf("todo_decided") < p.indexOf("When the user has chosen"))
+        assertFalse(PromptBuilder.build(anchored, files, "").contains("To decide:"))
+        assertFalse(PromptBuilder.build(waiting, files, "", PromptOptions(short = true)).contains("To decide:"))
+    }
+
+    @Test
+    fun `what was decided before is listed`() {
+        val decided = anchored.copy(
+            decisions = listOf(
+                Decision("Per unit or per cell?", listOf("Per unit", "Per cell"), "Per cell", "2026-10-06T09:00:00Z"),
+                Decision("Evict when?", emptyList(), "never", "2026-10-06T09:00:00Z"),
+            ),
+        )
+        val p = PromptBuilder.build(decided, files, "")
+        assertTrue(p, p.contains("\nAlready decided by the user:\n- Per unit or per cell? Answer: Per cell\n- Evict when? Answer: never\n"))
+        assertFalse(PromptBuilder.build(anchored, files, "").contains("Already decided"))
     }
 }

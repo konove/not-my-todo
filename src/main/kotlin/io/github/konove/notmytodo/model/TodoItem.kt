@@ -76,6 +76,18 @@ data class Comment(
     val unknown: Map<String, JsonElement> = emptyMap(),
 )
 
+/**
+ * A question I was asked about an item and what I answered. [options] are the answers I was offered,
+ * and [answer] is the one I chose or what I typed instead. [time] is written like [TodoItem.updated].
+ */
+data class Decision(
+    val question: String,
+    val options: List<String>,
+    val answer: String,
+    val time: String,
+    val unknown: Map<String, JsonElement> = emptyMap(),
+)
+
 data class TodoItem(
     val id: String,
     val title: String,
@@ -102,6 +114,10 @@ data class TodoItem(
     val fixedIn: String? = null,
     /** What was done to fix it, or why it was closed without a change; Markdown, a sentence or two. */
     val resolution: String? = null,
+    /** What I have to decide before this can be fixed; Markdown. It stays when I have decided. */
+    val toDecide: String? = null,
+    /** What I was asked and what I answered, oldest first. Only ever added to, like [comments]. */
+    val decisions: List<Decision> = emptyList(),
     /** The JSON fields this version does not know, written back as they came. */
     val unknown: Map<String, JsonElement> = emptyMap(),
 ) {

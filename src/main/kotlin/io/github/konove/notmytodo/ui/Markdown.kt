@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ui
 
 import com.intellij.openapi.util.text.StringUtil
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
@@ -40,8 +41,8 @@ object Markdown {
 }
 
 /**
- * What the detail pane shows under an item's facts: where it came from, how it was fixed, its
- * details, then its comments, oldest first.
+ * What the detail pane shows under an item's facts: what I have to decide and what I have decided,
+ * where it came from, how it was fixed, its details, then its comments, oldest first.
  */
 object ItemText {
     private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
@@ -49,6 +50,18 @@ object ItemText {
     /** [grey] is the HTML colour of what is said about a comment, as against what the comment says. */
     fun html(item: TodoItem, zone: ZoneId = ZoneId.systemDefault(), grey: String = "#6C707E"): String {
         val out = StringBuilder("<html><body>")
+        item.toDecide?.let {
+            val head = if (item.needsDecision) "To decide" else "Was to decide"
+            out.append("<p><font color=\"$grey\"><b>$head</b></font></p>")
+            out.append(Markdown.body(it))
+        }
+        if (item.decisions.isNotEmpty()) {
+            val gap = if (item.toDecide != null) 14 else 0
+            out.append("<p style=\"margin-top: ${gap}px\"><font color=\"$grey\"><b>Decided · ${item.decisions.size}</b></font></p>")
+        }
+        item.decisions.forEach { decision(out, it, zone, grey) }
+        val decided = item.toDecide != null || item.decisions.isNotEmpty()
+        if (decided && item.source != null) out.append("<p style=\"margin-top: 14px\"></p>")
         item.source?.let { out.append("<p><font color=\"$grey\">From ${StringUtil.escapeXmlEntities(it)}</font></p>") }
         if (item.fixedIn != null || item.resolution != null) {
             val commit = item.fixedIn?.let { " in ${StringUtil.escapeXmlEntities(it)}" }.orEmpty()
@@ -56,7 +69,7 @@ object ItemText {
             out.append("<p><font color=\"$grey\"><b>$head$commit</b></font></p>")
             item.resolution?.let { out.append(Markdown.body(it)) }
         }
-        val above = item.source != null || item.fixedIn != null || item.resolution != null
+        val above = decided || item.source != null || item.fixedIn != null || item.resolution != null
         if (item.details.isNotBlank()) {
             if (above) out.append("<p style=\"margin-top: 14px\"><font color=\"$grey\"><b>Details</b></font></p>")
             out.append(Markdown.body(item.details))
@@ -74,6 +87,23 @@ object ItemText {
             out.append(Markdown.body(comment.text))
         }
         return out.append("</body></html>").toString()
+    }
+
+    /** The question, the answers I was offered with mine in bold, and my answer in full when it was none of them. */
+    private fun decision(out: StringBuilder, decision: Decision, zone: ZoneId, grey: String) {
+        val time = StringUtil.escapeXmlEntities(time(decision.time, zone))
+        out.append("<p style=\"margin-top: 10px\"><icon src=\"AllIcons.General.User\">&nbsp;<font color=\"$grey\">$time</font></p>")
+        out.append(Markdown.body(decision.question))
+        val chosen = decision.options.firstOrNull { it.equals(decision.answer, ignoreCase = true) }
+        if (decision.options.isNotEmpty()) {
+            out.append("<ul>")
+            decision.options.forEach { option ->
+                val text = StringUtil.escapeXmlEntities(option)
+                out.append(if (option == chosen) "<li><b>$text</b></li>" else "<li><font color=\"$grey\">$text</font></li>")
+            }
+            out.append("</ul>")
+        }
+        if (chosen == null) out.append(Markdown.body(decision.answer))
     }
 
     /** The time in [zone], or as it was written when it is not a time. */

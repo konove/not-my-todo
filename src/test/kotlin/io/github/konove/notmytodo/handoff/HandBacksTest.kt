@@ -19,7 +19,7 @@ class HandBacksTest {
         val after = listOf(sent.copy(comments = listOf(asked)), waiting.copy(comments = listOf(asked)))
         val found = HandBacks.between(listOf(sent, waiting), after)
         assertEquals(listOf("T-1", "T-2"), found.map { it.item.id })
-        assertEquals(listOf(asked, asked), found.map { it.comment })
+        assertEquals(listOf(asked.text, asked.text), found.map { it.said })
     }
 
     @Test
@@ -54,6 +54,16 @@ class HandBacksTest {
     fun `the newest of several new comments by the agent is the one shown`() {
         val later = Comment(Author.AGENT, "2026-10-06T09:10:00Z", "going with per cell unless you say otherwise")
         val found = HandBacks.between(listOf(sent), listOf(sent.copy(comments = listOf(asked, later))))
-        assertEquals(listOf(later), found.map { it.comment })
+        assertEquals(listOf(later.text), found.map { it.said })
+    }
+
+    @Test
+    fun `what an agent says is to be decided is a hand-back, once`() {
+        val open = TodoItem("T-3", "a")
+        val asking = open.copy(tags = listOf("needs-decision"), toDecide = "MIT or Apache?")
+        val found = HandBacks.between(listOf(open), listOf(asking))
+        assertEquals(listOf("T-3" to "MIT or Apache?"), found.map { it.item.id to it.said })
+        assertEquals(emptyList<String>(), ids(listOf(asking), listOf(asking.copy(title = "b"))))
+        assertEquals(emptyList<String>(), ids(listOf(asking), listOf(asking.copy(tags = emptyList(), toDecide = null))))
     }
 }

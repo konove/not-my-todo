@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.model.Comment
+import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Author
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
@@ -328,5 +329,28 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals("abc1234", saved.fixedIn)
         assertEquals("Cached the path.\nTwo lines.", saved.resolution)
         assertEquals("30c6f6ae..e9ac6245", saved.source)
+    }
+
+    fun `test item text shows what is to be decided and what was decided`() {
+        val waiting = io.github.konove.notmytodo.model.TodoItem(
+            "T-1", "a", details = "the details", tags = listOf("needs-decision"), toDecide = "MIT or *Apache*?",
+        )
+        val html = ItemText.html(waiting)
+        assertTrue(html, html.contains("<b>To decide</b>") && html.contains("MIT or <em>Apache</em>?"))
+        assertTrue(html, html.contains("<b>Details</b>") && html.indexOf("To decide") < html.indexOf("the details"))
+        val decided = waiting.copy(
+            tags = emptyList(),
+            decisions = listOf(
+                Decision("Which license?", listOf("MIT", "Apache <2.0>"), "mit", "2026-10-06T09:00:00Z"),
+                Decision("A header in every file?", listOf("Yes", "No"), "Only in new ones", "then"),
+            ),
+        )
+        val after = ItemText.html(decided, java.time.ZoneId.of("Europe/Berlin"))
+        assertTrue(after, after.contains("<b>Was to decide</b>") && !after.contains("<b>To decide</b>"))
+        assertTrue(after, after.contains("Decided · 2") && after.contains(">2026-10-06 11:00<"))
+        assertTrue(after, after.contains("<b>MIT</b>") && after.contains("Apache &lt;2.0&gt;") && !after.contains("<b>Apache"))
+        assertTrue(after, after.contains("Only in new ones") && !after.contains("<b>Yes</b>") && !after.contains("<b>No</b>"))
+        assertTrue(after.indexOf("Decided · 2") < after.indexOf("the details"))
+        assertFalse(ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-2", "b", details = "d")).contains("ecide"))
     }
 }

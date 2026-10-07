@@ -15,12 +15,14 @@ AI agent take items off your hands.
   else that is open is an agent's to fix. The Agent can fix and Needs my
   decision entries list each kind, the person icon in the detail pane toggles
   the tag, and Fix All leaves tagged items out. An agent that finds a decision
-  is needed is told to add the tag and say what has to be decided in a
-  comment. A balloon tells you when an agent comments on an item that waits
-  for you or that is in progress, and Show opens the item; several in one
-  write share one balloon. Fix on a
+  is needed is told to say what has to be decided in the item's `toDecide`,
+  which adds the tag. A balloon tells you when an agent does that, or comments
+  on an item that waits for you or that is in progress, and Show opens the
+  item; several in one write share one balloon. Fix on a
   tagged item asks the agent for the options and its recommendation, and it
-  does the work only after you have chosen.
+  does the work only after you have chosen. What it asked, the options and
+  your answers are kept in the item's `decisions`, and the detail pane shows
+  them above the details.
 - **Links:** an item can be blocked by other items, be a duplicate of one, and
   be a part of one. A blocked item shows a padlock and is left out of Agent
   can fix until every item it waits for is closed. Parts stand under their
@@ -69,9 +71,10 @@ With the IDE's MCP server enabled, these tools are available:
 |---|---|
 | `todo_list` | List items, filtered by status, tags to have or not have, priority, file or directory, text, `blocked` and `parent`; `compact` leaves out details |
 | `todo_get` | One item with its current line range and code |
-| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, and with the `source` commit or run it came from |
-| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit |
+| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, with the `source` commit or run it came from, and with `toDecide` when you have to decide something first |
+| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit; `toDecide` says what you have to decide and tags the item `needs-decision` |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
+| `todo_decided` | Record what you were asked about an item and what you answered: each question, the options offered and the answer |
 | `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none; `comment` on an entry adds a comment to that item |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of

@@ -52,6 +52,11 @@ object PromptBuilder {
             out.append("It returns the details, the comments and the code as it is now.\n")
         } else {
             if (item.details.isNotBlank()) out.append("\nDetails:\n${item.details.trim()}\n")
+            item.toDecide?.let { out.append("\nTo decide:\n${it.trim()}\n") }
+            if (item.decisions.isNotEmpty()) {
+                out.append("\nAlready decided by the user:\n")
+                item.decisions.forEach { out.append("- ${it.question} Answer: ${it.answer}\n") }
+            }
             if (item.comments.isNotEmpty()) {
                 out.append("\nComments:\n")
                 item.comments.forEach { out.append("- ${it.author.json}, ${it.time}: ${it.text}\n") }
@@ -74,11 +79,9 @@ object PromptBuilder {
         out.append(RESOLUTION)
         out.append("If that tool is not available, set \"status\": \"fixed\" for this item in ${options.itemsFile}. ")
         out.append("If you could not fix it, leave the status alone and explain why.\n")
-        val tags = (item.tags + Tags.NEEDS_DECISION).distinct().joinToString(" ")
         out.append("\nIf fixing this needs a decision that is the user's to make, do not guess and do not change the code. ")
-        // The tag goes first, so that the question arrives on an item that already waits for me.
-        out.append("Call todo_update with id \"${item.id}\" and tags \"$tags\", ")
-        out.append("then todo_comment with what has to be decided, and leave the status and the details alone.\n")
+        out.append("Call todo_update with id \"${item.id}\" and toDecide, ")
+        out.append("which says what has to be decided; that marks the item as waiting for the user. Leave the status and the details alone.\n")
         return out.toString()
     }
 
@@ -88,6 +91,10 @@ object PromptBuilder {
         out.append("each with what it means and what it costs, and say which one you recommend. ")
         out.append("Then ask the user to choose and wait for the answer. ")
         out.append("If you have a tool for asking the user a question, use it.\n")
+        out.append("\nWhen the user has answered, and before you change anything, call the todo_decided tool with id \"${item.id}\" ")
+        out.append("and every question you asked, each with the options you offered and the answer: ")
+        out.append("the option the user chose or what the user typed, in the user's words. ")
+        out.append("If that tool is not available, say what was decided in the resolution.\n")
         val tags = (item.tags - Tags.NEEDS_DECISION).joinToString(" ")
         out.append("\nWhen the user has chosen, carry the choice out. ")
         out.append("When you have finished, call the todo_update tool with id \"${item.id}\", tags \"$tags\" and status \"fixed\". ")

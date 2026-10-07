@@ -23,7 +23,9 @@ object TodoJson {
     private val itemKeys = setOf(
         "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor", "anchors",
         "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
+        "toDecide", "decisions",
     )
+    private val decisionKeys = setOf("question", "options", "answer", "time")
     private val commentKeys = setOf("author", "time", "text")
     private val anchorKeys = setOf("path", "startLine", "endLine", "text", "before", "after", "lost")
 
@@ -59,6 +61,20 @@ object TodoJson {
         item.source?.let { o.addProperty("source", it) }
         item.fixedIn?.let { o.addProperty("fixedIn", it) }
         item.resolution?.let { o.addProperty("resolution", it) }
+        item.toDecide?.let { o.addProperty("toDecide", it) }
+        if (item.decisions.isNotEmpty()) {
+            val decisions = JsonArray()
+            item.decisions.forEach { d ->
+                val entry = JsonObject()
+                entry.addProperty("question", d.question)
+                entry.add("options", strings(d.options))
+                entry.addProperty("answer", d.answer)
+                entry.addProperty("time", d.time)
+                entry.addUnknown(d.unknown)
+                decisions.add(entry)
+            }
+            o.add("decisions", decisions)
+        }
         if (item.comments.isNotEmpty()) {
             val comments = JsonArray()
             item.comments.forEach { c ->
@@ -133,6 +149,7 @@ object TodoJson {
             Author.fromJson(it) ?: throw TodoFormatException("item $id has a bad author \"$it\"")
         } ?: Author.USER
         val comments = o.get("comments")?.takeIf { it.isJsonArray }?.asJsonArray?.map { decodeComment(it, id) }.orEmpty()
+        val decisions = o.get("decisions")?.takeIf { it.isJsonArray }?.asJsonArray?.map { decodeDecision(it, id) }.orEmpty()
         val anchors = o.get("anchors")?.takeIf { it.isJsonArray }?.asJsonArray?.map {
             if (!it.isJsonObject) throw TodoFormatException("item $id has an anchor that is not an object")
             decodeAnchor(it.asJsonObject, id)
@@ -144,6 +161,7 @@ object TodoJson {
             anchors = anchors, blockedBy = o.strList("blockedBy").mapNotNull(ItemId::normalize).distinct(),
             duplicateOf = o.str("duplicateOf")?.let(ItemId::normalize), parent = o.str("parent")?.let(ItemId::normalize),
             source = o.text("source"), fixedIn = o.text("fixedIn"), resolution = o.text("resolution"),
+            toDecide = o.text("toDecide"), decisions = decisions,
             unknown = o.unknown(itemKeys),
         )
     }
@@ -155,6 +173,14 @@ object TodoJson {
             Author.fromJson(it) ?: throw TodoFormatException("item $id has a comment with a bad author \"$it\"")
         } ?: Author.USER
         return Comment(author, o.str("time").orEmpty(), o.str("text").orEmpty(), o.unknown(commentKeys))
+    }
+
+    private fun decodeDecision(element: JsonElement, id: String): Decision {
+        if (!element.isJsonObject) throw TodoFormatException("item $id has a decision that is not an object")
+        val o = element.asJsonObject
+        return Decision(
+            o.str("question").orEmpty(), o.strList("options"), o.str("answer").orEmpty(), o.str("time").orEmpty(), o.unknown(decisionKeys),
+        )
     }
 
     private fun decodeAnchor(o: JsonObject, id: String): Anchor {

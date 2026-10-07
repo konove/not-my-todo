@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.store
 
 import com.google.gson.JsonParser
+import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Status
@@ -323,5 +324,31 @@ class ItemStoreTest {
         assertEquals(before, Files.readString(file))
         assertEquals(0, fired)
         assertEquals(listOf("a"), s.items.map { it.title })
+    }
+
+    @Test
+    fun `decisions are added to the record with the time, and nothing else changes`() {
+        val s = store()
+        s.create(Draft("pick a license", tags = listOf("needs-decision"), toDecide = " MIT or Apache? "))
+        assertNull(s.create(Draft("b", toDecide = " ")).toDecide)
+        now = Instant.parse("2026-10-05T11:00:00Z")
+        s.decide("T-1", listOf(Decision(" Which license? ", listOf("MIT", " Apache 2.0 ", " "), " MIT ", "")))
+        s.decide("T-1", listOf(Decision("Year?", emptyList(), "2026", "")))
+        val item = store().find("T-1")!!
+        assertEquals(
+            listOf(
+                Decision("Which license?", listOf("MIT", "Apache 2.0"), "MIT", "2026-10-05T11:00:00Z"),
+                Decision("Year?", emptyList(), "2026", "2026-10-05T11:00:00Z"),
+            ),
+            item.decisions,
+        )
+        assertEquals("MIT or Apache?", item.toDecide)
+        assertTrue(item.needsDecision)
+        assertEquals(Status.OPEN, item.status)
+        assertThrows(StoreException::class.java) { s.decide("T-1", emptyList()) }
+        assertThrows(StoreException::class.java) { s.decide("T-1", listOf(Decision(" ", emptyList(), "a", ""))) }
+        assertThrows(StoreException::class.java) { s.decide("T-1", listOf(Decision("q", emptyList(), " ", ""))) }
+        assertThrows(StoreException::class.java) { s.decide("T-9", listOf(Decision("q", emptyList(), "a", ""))) }
+        assertEquals(2, s.find("T-1")!!.decisions.size)
     }
 }

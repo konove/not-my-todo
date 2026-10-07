@@ -440,4 +440,56 @@ class TodoToolsTest : BasePlatformTestCase() {
         failsWith("empty") { tools.batch("[]") }
         assertEquals(before, Files.readString(store.file))
     }
+
+    fun `test what is to be decided is set with the tag, kept and taken away`() {
+        tools.create("pick a license", null, null, "legal", null, null, null, toDecide = "MIT or Apache?")
+        val made = store.find("T-1")!!
+        assertEquals("MIT or Apache?", made.toDecide)
+        assertEquals(listOf("legal", "needs-decision"), made.tags)
+        store.create(Draft("b", tags = listOf("x")))
+        val json = JsonParser.parseString(tools.update("T-2", null, null, null, null, null, toDecide = "Which of the two?")).asJsonObject
+        assertEquals("Which of the two?", json.get("toDecide").asString)
+        assertEquals(listOf("x", "needs-decision"), store.find("T-2")!!.tags)
+        // The tag goes when the work is done; what was to be decided stays on the item.
+        tools.update("T-2", null, null, null, "x", "fixed")
+        assertEquals("Which of the two?", store.find("T-2")!!.toDecide)
+        assertFalse(store.find("T-2")!!.needsDecision)
+        tools.update("T-2", null, null, null, null, null, toDecide = "")
+        assertNull(store.find("T-2")!!.toDecide)
+        assertFalse(store.find("T-2")!!.needsDecision)
+        tools.batch("""[{"id": "T-2", "toDecide": "Again?"}, {"title": "new", "toDecide": "What?"}]""")
+        assertTrue(store.find("T-2")!!.needsDecision)
+        assertEquals("What?", store.find("T-3")!!.toDecide)
+        assertTrue(store.find("T-3")!!.needsDecision)
+    }
+
+    fun `test decided records the questions, the options and the answers`() {
+        store.create(Draft("pick a license", tags = listOf("needs-decision")))
+        val json = JsonParser.parseString(
+            tools.decided(
+                "T-1",
+                """[{"question": "Which license?", "options": ["MIT", "Apache 2.0"], "answer": "MIT"},
+                    {"question": "Year?", "answer": "2026"}]""",
+            )
+        ).asJsonObject
+        assertEquals(2, json.getAsJsonArray("decisions").size())
+        tools.decided("t-1", """[{"question": "A header in every file?", "options": ["Yes", "No"], "answer": "Only in new ones"}]""")
+        val item = store.find("T-1")!!
+        assertEquals(
+            listOf("Which license?" to "MIT", "Year?" to "2026", "A header in every file?" to "Only in new ones"),
+            item.decisions.map { it.question to it.answer },
+        )
+        assertEquals(listOf("MIT", "Apache 2.0"), item.decisions[0].options)
+        assertTrue(item.decisions.all { it.time.isNotEmpty() })
+        assertTrue(item.needsDecision)
+        assertEquals(Status.OPEN, item.status)
+        failsWith("JSON array") { tools.decided("T-1", "not json") }
+        failsWith("empty") { tools.decided("T-1", "[]") }
+        failsWith("entry 2: answer") { tools.decided("T-1", """[{"question": "q", "answer": "a"}, {"question": "q"}]""") }
+        failsWith("question") { tools.decided("T-1", """[{"answer": "a"}]""") }
+        failsWith("options") { tools.decided("T-1", """[{"question": "q", "options": "MIT", "answer": "a"}]""") }
+        failsWith("chosen") { tools.decided("T-1", """[{"question": "q", "chosen": "a"}]""") }
+        failsWith("T-9") { tools.decided("T-9", """[{"question": "q", "answer": "a"}]""") }
+        assertEquals(3, store.find("T-1")!!.decisions.size)
+    }
 }

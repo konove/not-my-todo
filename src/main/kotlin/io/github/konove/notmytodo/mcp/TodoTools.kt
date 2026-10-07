@@ -14,6 +14,7 @@ import io.github.konove.notmytodo.ide.AnchorTracker
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
@@ -92,16 +93,17 @@ class TodoTools(private val project: Project) {
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null, source: String? = null,
+        toDecide: String? = null,
     ): String {
         return TodoJson.toText(TodoJson.encodeItem(storeCall {
-            store.create(draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source))
+            store.create(draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide))
         }))
     }
 
     private fun draft(
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String?,
-        blockedBy: String?, duplicateOf: String?, parent: String?, source: String?,
+        blockedBy: String?, duplicateOf: String?, parent: String?, source: String?, toDecide: String?,
     ): Draft {
         if (title.isBlank()) throw TodoToolError("title must not be empty")
         val parsedPriority = priority?.let(::parsePriority) ?: Priority.P2
@@ -111,19 +113,23 @@ class TodoTools(private val project: Project) {
         val first = path?.let { buildAnchor(Place(filePath(it), startLine, endLine)) }
         val anchors = (listOfNotNull(first) + parsePlaces(places).map(::buildAnchor)).distinctBy(Anchor::place)
         return Draft(
-            title, details.orEmpty(), parsedPriority, Tags.parseList(tags.orEmpty()), Author.AGENT, anchors,
+            title, details.orEmpty(), parsedPriority, waiting(Tags.parseList(tags.orEmpty()), toDecide), Author.AGENT, anchors,
             parseIds(blockedBy.orEmpty()), duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
-            parent?.takeIf { it.isNotBlank() }?.let(::parseId), source,
+            parent?.takeIf { it.isNotBlank() }?.let(::parseId), source, toDecide,
         )
     }
+
+    /** The [tags] of an item that is told what is [toDecide]: it waits for the user from then on. */
+    private fun waiting(tags: List<String>, toDecide: String?): List<String> =
+        if (toDecide.isNullOrBlank()) tags else (tags + Tags.NEEDS_DECISION).distinct()
 
     fun update(
         id: String, title: String?, details: String?, priority: String?, tags: String?, status: String?,
         path: String? = null, startLine: Int? = null, endLine: Int? = null, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
-        source: String? = null, fixedIn: String? = null, resolution: String? = null,
+        source: String? = null, fixedIn: String? = null, resolution: String? = null, toDecide: String? = null,
     ): String {
-        val edit = edit(title, details, priority, tags, status, blockedBy, duplicateOf, parent, source, fixedIn, resolution)
+        val edit = edit(title, details, priority, tags, status, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide)
         val moves = path != null || startLine != null || endLine != null
         if (moves && places != null) throw TodoToolError("pass either places or path, startLine and endLine, not both")
         if (places != null) {
@@ -156,7 +162,7 @@ class TodoTools(private val project: Project) {
     private fun edit(
         title: String?, details: String?, priority: String?, tags: String?, status: String?,
         blockedBy: String?, duplicateOf: String?, parent: String?,
-        source: String?, fixedIn: String?, resolution: String?,
+        source: String?, fixedIn: String?, resolution: String?, toDecide: String?,
     ): (TodoItem) -> TodoItem {
         // An empty text takes the link away; a text left out leaves it as it is.
         val blockers = blockedBy?.let(::parseIds)
@@ -170,7 +176,7 @@ class TodoTools(private val project: Project) {
                 title = title ?: it.title,
                 details = details ?: it.details,
                 priority = parsedPriority ?: it.priority,
-                tags = parsedTags ?: it.tags,
+                tags = waiting(parsedTags ?: it.tags, toDecide),
                 status = parsedStatus ?: it.status,
                 blockedBy = blockers ?: it.blockedBy,
                 duplicateOf = if (duplicateOf != null) original else it.duplicateOf,
@@ -179,6 +185,7 @@ class TodoTools(private val project: Project) {
                 source = source ?: it.source,
                 fixedIn = fixedIn ?: it.fixedIn,
                 resolution = resolution ?: it.resolution,
+                toDecide = toDecide ?: it.toDecide,
             )
         }
     }
@@ -240,7 +247,7 @@ class TodoTools(private val project: Project) {
             val id = parseId(text("id") ?: throw TodoToolError("id must be a text"))
             val edit = edit(
                 text("title"), text("details"), text("priority"), text("tags"), text("status"), text("blockedBy"),
-                text("duplicateOf"), text("parent"), text("source"), text("fixedIn"), text("resolution"),
+                text("duplicateOf"), text("parent"), text("source"), text("fixedIn"), text("resolution"), text("toDecide"),
             )
             // In a batch, what the agent has to say about an item goes with the change, in the same write.
             val comment = text("comment")
@@ -250,7 +257,7 @@ class TodoTools(private val project: Project) {
         val draft = draft(
             text("title") ?: throw TodoToolError("title is required for a new item"), text("details"), text("priority"),
             text("tags"), text("path"), line("startLine"), line("endLine"), text("places"),
-            text("blockedBy"), text("duplicateOf"), text("parent"), text("source"),
+            text("blockedBy"), text("duplicateOf"), text("parent"), text("source"), text("toDecide"),
         )
         return { it.create(draft) }
     }
@@ -258,6 +265,39 @@ class TodoTools(private val project: Project) {
     fun comment(id: String, text: String): String {
         if (text.isBlank()) throw TodoToolError("text must not be empty")
         return TodoJson.toText(TodoJson.encodeItem(storeCall { store.comment(id, Author.AGENT, text) }))
+    }
+
+    /**
+     * Records what the user was asked about an item and answered. [decisions] is a JSON array of
+     * objects with a question, the options offered, if any, and the answer.
+     */
+    fun decided(id: String, decisions: String): String {
+        val entries = try {
+            JsonParser.parseString(decisions).takeIf { it.isJsonArray }?.asJsonArray
+        } catch (_: JsonParseException) {
+            null
+        } ?: throw TodoToolError(
+            "decisions must be a JSON array of objects, for example [{\"question\": \"...\", \"options\": [\"...\", \"...\"], \"answer\": \"...\"}]"
+        )
+        if (entries.isEmpty) throw TodoToolError("decisions is empty: pass at least one object")
+        val parsed = entries.mapIndexed { index, entry -> inEntry(index) { decision(entry) } }
+        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.decide(parseId(id), parsed) }))
+    }
+
+    private fun decision(entry: JsonElement): Decision {
+        if (!entry.isJsonObject) throw TodoToolError("must be a JSON object")
+        val o = entry.asJsonObject
+        o.keySet().firstOrNull { it !in DECISION_FIELDS }?.let {
+            throw TodoToolError("unknown field $it: a decision takes ${DECISION_FIELDS.joinToString(", ")}")
+        }
+        fun text(field: String): String =
+            o.get(field)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.takeIf { it.isNotBlank() }
+                ?: throw TodoToolError("$field is required and must be a text")
+        val options = o.get("options")?.takeUnless { it.isJsonNull }?.let { value ->
+            value.takeIf { it.isJsonArray && it.asJsonArray.all { e -> e.isJsonPrimitive } }?.asJsonArray?.map { it.asString }
+                ?: throw TodoToolError("options must be an array of texts")
+        }.orEmpty()
+        return Decision(text("question"), options, text("answer"), "")
     }
 
     /** A place as a tool is given it: a file, with lines or, for the whole file, without. */
@@ -398,10 +438,12 @@ class TodoTools(private val project: Project) {
     private companion object {
         val PLACE_FIELDS = setOf("path", "startLine", "endLine", "places")
         val LIST_FIELDS = setOf("tags", "blockedBy", "places")
-        val CREATE_FIELDS = setOf("title", "details", "priority", "tags") + PLACE_FIELDS + setOf("blockedBy", "duplicateOf", "parent", "source")
+        val DECISION_FIELDS = setOf("question", "options", "answer")
+        val CREATE_FIELDS = setOf("title", "details", "priority", "tags") + PLACE_FIELDS +
+            setOf("blockedBy", "duplicateOf", "parent", "source", "toDecide")
         val UPDATE_FIELDS = setOf(
             "id", "title", "details", "priority", "tags", "status", "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
-            "comment",
+            "toDecide", "comment",
         )
     }
 }

@@ -3,6 +3,7 @@ package io.github.konove.notmytodo.store
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Comment
+import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -33,6 +34,7 @@ data class Draft(
     val duplicateOf: String? = null,
     val parent: String? = null,
     val source: String? = null,
+    val toDecide: String? = null,
 )
 
 /**
@@ -128,7 +130,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             tags = Tags.normalizeAll(draft.tags), status = Status.OPEN, author = draft.author,
             created = now, updated = now, anchors = draft.anchors,
             blockedBy = draft.blockedBy.distinct(), duplicateOf = draft.duplicateOf, parent = draft.parent,
-            source = draft.source.said(),
+            source = draft.source.said(), toDecide = draft.toDecide.said(),
         )
         checkLinks(item, f.items + item)
         return f.copy(nextId = f.nextId + 1, items = f.items + item) to item
@@ -141,6 +143,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             id = old.id, author = old.author, created = old.created, updated = old.updated,
             title = changed.title.trim(), tags = Tags.normalizeAll(changed.tags), blockedBy = changed.blockedBy.distinct(),
             source = changed.source.said(), fixedIn = changed.fixedIn.said(), resolution = changed.resolution.said(),
+            toDecide = changed.toDecide.said(),
             // A change may build the item or an anchor anew; what a newer plugin wrote stays either way.
             // An anchor built anew has no unknown fields of its own and takes those of the one it replaces.
             unknown = old.unknown,
@@ -207,6 +210,23 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         val note = text.trim()
         if (note.isEmpty()) throw StoreException("the comment text must not be empty")
         return { it.copy(comments = it.comments + Comment(author, timestamp(), note)) }
+    }
+
+    /**
+     * Adds what I was asked and what I answered to the end of the item's decisions, with the time.
+     * Whether the item still waits for me is not changed: that is its tag.
+     */
+    fun decide(id: String, decisions: List<Decision>): TodoItem {
+        if (decisions.isEmpty()) throw StoreException("there must be at least one decision")
+        val now = timestamp()
+        val added = decisions.map { d ->
+            val question = d.question.trim()
+            val answer = d.answer.trim()
+            if (question.isEmpty()) throw StoreException("the question must not be empty")
+            if (answer.isEmpty()) throw StoreException("the answer must not be empty")
+            Decision(question, d.options.map { it.trim() }.filter { it.isNotEmpty() }, answer, now)
+        }
+        return update(id) { it.copy(decisions = it.decisions + added) }
     }
 
     fun delete(id: String) {
