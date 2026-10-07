@@ -26,6 +26,14 @@
         <p>Open source under the Apache 2.0 license. Source code and issue tracker:
             <a href="https://github.com/konove/not-my-todo">github.com/konove/not-my-todo</a>.</p>
     ]]></description>
+    <change-notes><![CDATA[
+        <p><b>0.1.0</b></p>
+        <ul>
+            <li>First release: capture TODO items from the editor, a tool window to search and
+                manage them, anchors that follow the code, Fix with Claude, and MCP tools for
+                agents.</li>
+        </ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="notmytodo-mcp.xml">com.intellij.mcpServer</depends>
