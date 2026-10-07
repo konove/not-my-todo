@@ -23,6 +23,8 @@
         <p>Items are stored in <code>.todos/items.json</code> in the project root, so an agent
             without MCP can read the file directly.</p>
         <p>Requires a JetBrains IDE version 2026.2 or newer.</p>
+        <p>Open source under the Apache 2.0 license. Source code and issue tracker:
+            <a href="https://github.com/konove/not-my-todo">github.com/konove/not-my-todo</a>.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
