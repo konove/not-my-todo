@@ -83,7 +83,7 @@ class TodoToolset : McpToolset {
         @McpDescription("New title") title: String? = null,
         @McpDescription("New details") details: String? = null,
         @McpDescription("p1, p2 or p3") priority: String? = null,
-        @McpDescription("Replacement tags separated by commas or spaces. Include needs-decision when the user has to decide something before this can be fixed; do not fix items that carry it") tags: String? = null,
+        @McpDescription("Replacement tags separated by commas or spaces. Include needs-decision when the user has to decide something before this can be fixed, and then say what with todo_comment; do not fix items that carry it") tags: String? = null,
         @McpDescription("open, in_progress, fixed, done or wont_fix") status: String? = null,
         @McpDescription("File to re-attach to, as a path relative to the project root; defaults to the item's current file") path: String? = null,
         @McpDescription("First line of the code to re-attach to, 1-based; leave out with a path to attach to the whole file") startLine: Int? = null,
@@ -101,7 +101,8 @@ class TodoToolset : McpToolset {
 
     @McpTool
     @McpDescription(
-        "Add a comment to a TODO item: a finding, a progress note or a question for the user. It is appended to " +
+        "Add a comment to a TODO item: a finding, a progress note or a question for the user. The user is shown " +
+            "a comment on an item that is in progress or tagged needs-decision as soon as it is added. It is appended to " +
             "the item's comments with your authorship and the time, and nothing else on the item is changed, so " +
             "prefer it to rewriting details with todo_update. Returns the updated item as JSON."
     )
@@ -115,7 +116,8 @@ class TodoToolset : McpToolset {
         "Create or change several TODO items in one call, saved as one write: use it to file a list of findings or to " +
             "re-tag, re-prioritise or close many items, instead of calling todo_create or todo_update for each or editing " +
             "the items file. items is a JSON array of objects. An object with an id changes that item and takes the " +
-            "fields of todo_update except path, startLine, endLine and places; an object without an id is a new item " +
+            "fields of todo_update except path, startLine, endLine and places, and comment as well, which adds a comment " +
+            "as todo_comment does; an object without an id is a new item " +
             "and takes the fields of todo_create. The entries are applied in order, and when one is wrong none is saved " +
             "and the error names it. Returns one line per entry with the id, title, priority, status and tags of the item as saved."
     )
@@ -123,7 +125,8 @@ class TodoToolset : McpToolset {
         @McpDescription(
             "JSON array of objects, for example [{\"title\": \"Cache the index\", \"priority\": \"p3\", \"tags\": \"perf\", " +
                 "\"path\": \"src/Index.kt\", \"startLine\": 12}, {\"id\": \"T-3\", \"tags\": \"perf mcp\"}, " +
-                "{\"id\": \"T-4\", \"status\": \"wont_fix\", \"resolution\": \"...\"}]"
+                "{\"id\": \"T-4\", \"status\": \"wont_fix\", \"resolution\": \"...\"}, " +
+                "{\"id\": \"T-5\", \"tags\": \"needs-decision\", \"comment\": \"Which of the two?\"}]"
         ) items: String,
     ): String = call { it.batch(items) }
 

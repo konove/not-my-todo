@@ -15,7 +15,10 @@ AI agent take items off your hands.
   else that is open is an agent's to fix. The Agent can fix and Needs my
   decision entries list each kind, the person icon in the detail pane toggles
   the tag, and Fix All leaves tagged items out. An agent that finds a decision
-  is needed is told to add the tag and say what has to be decided. Fix on a
+  is needed is told to add the tag and say what has to be decided in a
+  comment. A balloon tells you when an agent comments on an item that waits
+  for you or that is in progress, and Show opens the item; several in one
+  write share one balloon. Fix on a
   tagged item asks the agent for the options and its recommendation, and it
   does the work only after you have chosen.
 - **Links:** an item can be blocked by other items, be a duplicate of one, and
@@ -69,7 +72,7 @@ With the IDE's MCP server enabled, these tools are available:
 | `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, and with the `source` commit or run it came from |
 | `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
-| `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none |
+| `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none; `comment` on an entry adds a comment to that item |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of
 the plugin's last write.

@@ -115,6 +115,8 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
 
         fun update(id: String, change: (TodoItem) -> TodoItem): TodoItem =
             updated(file, id, true, change).also { file = it.first }.second
+
+        fun comment(id: String, author: Author, text: String): TodoItem = update(id, commented(author, text))
     }
 
     private fun created(f: TodoFile, draft: Draft): Pair<TodoFile, TodoItem> {
@@ -199,10 +201,12 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
     }
 
     /** Adds a note to the end of the item's comments. Nothing else of the item is read from the caller. */
-    fun comment(id: String, author: Author, text: String): TodoItem {
+    fun comment(id: String, author: Author, text: String): TodoItem = update(id, change = commented(author, text))
+
+    private fun commented(author: Author, text: String): (TodoItem) -> TodoItem {
         val note = text.trim()
         if (note.isEmpty()) throw StoreException("the comment text must not be empty")
-        return update(id) { it.copy(comments = it.comments + Comment(author, timestamp(), note)) }
+        return { it.copy(comments = it.comments + Comment(author, timestamp(), note)) }
     }
 
     fun delete(id: String) {

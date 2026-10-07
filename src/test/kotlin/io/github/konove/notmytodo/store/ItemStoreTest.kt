@@ -293,6 +293,20 @@ class ItemStoreTest {
     }
 
     @Test
+    fun `a batch can comment on an item it also changes`() {
+        val s = store()
+        s.create(Draft("a"))
+        s.batch { b ->
+            b.update("T-1") { it.copy(tags = listOf("needs-decision")) }
+            b.comment("T-1", Author.AGENT, " which one? ")
+        }
+        val read = store().find("T-1")!!
+        assertEquals(listOf("needs-decision"), read.tags)
+        assertEquals(listOf(Author.AGENT to "which one?"), read.comments.map { it.author to it.text })
+        assertThrows(StoreException::class.java) { s.batch { b -> b.comment("T-1", Author.AGENT, "  ") } }
+    }
+
+    @Test
     fun `a batch with a change that fails changes nothing`() {
         val s = store()
         s.create(Draft("a"))

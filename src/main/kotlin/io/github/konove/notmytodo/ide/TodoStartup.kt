@@ -20,6 +20,7 @@ class TodoStartup : ProjectActivity {
             project.service<AnchorTracker>().start()
             project.service<EditorDecorator>().start()
         }
+        project.service<HandBackWatcher>().start()
         project.service<ChannelServer>().sync()
         // Tests must not write into the user's own configuration directory.
         if (ApplicationManager.getApplication().isUnitTestMode) return

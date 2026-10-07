@@ -76,8 +76,9 @@ object PromptBuilder {
         out.append("If you could not fix it, leave the status alone and explain why.\n")
         val tags = (item.tags + Tags.NEEDS_DECISION).distinct().joinToString(" ")
         out.append("\nIf fixing this needs a decision that is the user's to make, do not guess and do not change the code. ")
-        out.append("Call todo_update with id \"${item.id}\", tags \"$tags\" and details that say what has to be decided, ")
-        out.append("and leave the status alone.\n")
+        // The tag goes first, so that the question arrives on an item that already waits for me.
+        out.append("Call todo_update with id \"${item.id}\" and tags \"$tags\", ")
+        out.append("then todo_comment with what has to be decided, and leave the status and the details alone.\n")
         return out.toString()
     }
 

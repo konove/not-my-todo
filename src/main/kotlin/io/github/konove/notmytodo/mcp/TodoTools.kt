@@ -242,7 +242,10 @@ class TodoTools(private val project: Project) {
                 text("title"), text("details"), text("priority"), text("tags"), text("status"), text("blockedBy"),
                 text("duplicateOf"), text("parent"), text("source"), text("fixedIn"), text("resolution"),
             )
-            return { it.update(id, edit) }
+            // In a batch, what the agent has to say about an item goes with the change, in the same write.
+            val comment = text("comment")
+            if (comment != null && comment.isBlank()) throw TodoToolError("comment must not be empty")
+            return { batch -> batch.update(id, edit).let { if (comment == null) it else batch.comment(id, Author.AGENT, comment) } }
         }
         val draft = draft(
             text("title") ?: throw TodoToolError("title is required for a new item"), text("details"), text("priority"),
@@ -398,6 +401,7 @@ class TodoTools(private val project: Project) {
         val CREATE_FIELDS = setOf("title", "details", "priority", "tags") + PLACE_FIELDS + setOf("blockedBy", "duplicateOf", "parent", "source")
         val UPDATE_FIELDS = setOf(
             "id", "title", "details", "priority", "tags", "status", "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
+            "comment",
         )
     }
 }

@@ -401,6 +401,29 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertEquals("run 7", part.source)
     }
 
+    fun `test batch hands items back with the tag and the question in one write`() {
+        store.create(Draft("a"))
+        store.create(Draft("b"))
+        var fired = 0
+        val listener = { fired++; Unit }
+        store.addListener(listener)
+        try {
+            tools.batch(
+                """[{"id": "T-1", "tags": "needs-decision", "comment": "per unit or per cell?"},
+                    {"id": "T-2", "comment": "half way"}]"""
+            )
+        } finally {
+            store.removeListener(listener)
+        }
+        assertEquals(1, fired)
+        val a = store.find("T-1")!!
+        assertTrue(a.needsDecision)
+        assertEquals(listOf(Author.AGENT to "per unit or per cell?"), a.comments.map { it.author to it.text })
+        assertEquals(listOf("half way"), store.find("T-2")!!.comments.map { it.text })
+        failsWith("entry 1: comment") { tools.batch("""[{"id": "T-1", "comment": " "}]""") }
+        failsWith("comment cannot be set on a new item") { tools.batch("""[{"title": "new", "comment": "x"}]""") }
+    }
+
     fun `test batch with a bad entry names it and changes nothing`() {
         store.create(Draft("a"))
         val before = Files.readString(store.file)

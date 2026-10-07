@@ -170,6 +170,13 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `an agent that needs my decision is told to tag the item and ask in a comment`() {
+        val p = PromptBuilder.build(anchored, files, "")
+        assertTrue(p, p.contains("do not guess and do not change the code. Call todo_update with id \"T-14\" and tags \"perf pathing needs-decision\", "))
+        assertTrue(p, p.contains("then todo_comment with what has to be decided, and leave the status and the details alone.\n"))
+    }
+
+    @Test
     fun `comments follow the details, oldest first`() {
         val item = anchored.copy(comments = listOf(
             Comment(Author.AGENT, "2026-10-06T09:00:00Z", "the cache is per unit"),
