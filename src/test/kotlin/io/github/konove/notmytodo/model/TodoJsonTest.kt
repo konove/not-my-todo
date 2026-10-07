@@ -187,4 +187,41 @@ class TodoJsonTest {
         val e = assertThrows(TodoFormatException::class.java) { TodoJson.decode("""{"items":[{"id":"T-1","title":"x","anchors":[3]}]}""") }
         assertTrue(e.message, e.message!!.contains("anchor"))
     }
+
+    @Test
+    fun `links are kept, and left out of the file when an item has none`() {
+        val linked = item(3).copy(blockedBy = listOf("T-1", "T-2"), duplicateOf = "T-1", parent = "T-2")
+        val file = TodoFile(2, 4, listOf(item(1), item(2), linked))
+        val text = TodoJson.encode(file)
+        assertEquals(file, TodoJson.decode(text))
+        assertEquals(1, Regex("\"blockedBy\"").findAll(text).count())
+        assertEquals(1, Regex("\"duplicateOf\": \"T-1\"").findAll(text).count())
+        assertEquals(1, Regex("\"parent\": \"T-2\"").findAll(text).count())
+    }
+
+    @Test
+    fun `ids are read as they may be typed`() {
+        assertEquals("T-7", ItemId.normalize(" t-7 "))
+        assertEquals("T-7", ItemId.normalize("7"))
+        assertNull(ItemId.normalize("T-07"))
+        assertNull(ItemId.normalize("seven"))
+        assertEquals(listOf("T-1", "T-2"), ItemId.parseList("T-1, 2 t-1"))
+        assertEquals(emptyList<String>(), ItemId.parseList(" "))
+        assertThrows(IllegalArgumentException::class.java) { ItemId.parseList("T-1 x") }
+    }
+
+    @Test
+    fun `an item is blocked while a blocker that is there is not closed`() {
+        val items = listOf(
+            item(1), item(2).copy(status = Status.DONE), item(3).copy(status = Status.FIXED),
+            item(4).copy(blockedBy = listOf("T-1", "T-2")), item(5).copy(blockedBy = listOf("T-2", "T-9")),
+            item(6).copy(blockedBy = listOf("T-3"), parent = "T-1"), item(7).copy(parent = "T-1"),
+        )
+        val links = Links(items)
+        assertEquals(listOf("T-1"), links.openBlockers(items[3]).map { it.id })
+        assertFalse(links.isBlocked(items[4]))
+        assertTrue(links.isBlocked(items[5]))
+        assertEquals(listOf("T-6", "T-7"), links.children("T-1").map { it.id })
+        assertEquals(emptyList<TodoItem>(), links.children("T-2"))
+    }
 }

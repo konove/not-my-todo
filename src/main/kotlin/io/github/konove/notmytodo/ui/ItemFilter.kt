@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -34,13 +35,14 @@ object ItemFilter {
 
     fun apply(items: List<TodoItem>, query: ItemQuery): List<TodoItem> {
         val words = query.text.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val links = Links(items)
         return items
             // An item asked for by its id is shown even when closed.
             .filter { query.showClosed || !it.isClosed || it.status in query.statuses || it.id.lowercase() in words }
             .filter { query.priorities.isEmpty() || it.priority in query.priorities }
             .filter { query.statuses.isEmpty() || it.status in query.statuses }
             .filter { query.authors.isEmpty() || it.author in query.authors }
-            .filter { inScope(it, query) }
+            .filter { inScope(it, query, links) }
             .filter { query.tag == null || query.tag in it.tags }
             .filter { item -> words.all { matches(item, it) } }
             .sortedWith(order(query.sort))
@@ -56,12 +58,13 @@ object ItemFilter {
         }
     }
 
-    private fun inScope(item: TodoItem, query: ItemQuery): Boolean = when (query.scope) {
+    private fun inScope(item: TodoItem, query: ItemQuery, links: Links): Boolean = when (query.scope) {
         Scope.ALL -> true
         Scope.THIS_FILE -> query.currentPath != null && item.anchors.any { it.path == query.currentPath }
         Scope.NOTES -> item.anchors.isEmpty()
         Scope.ANCHOR_LOST -> item.anyLost
-        Scope.AGENT_READY -> !item.needsDecision && (item.status == Status.OPEN || item.status == Status.IN_PROGRESS)
+        Scope.AGENT_READY ->
+            !item.needsDecision && !links.isBlocked(item) && (item.status == Status.OPEN || item.status == Status.IN_PROGRESS)
         Scope.NEEDS_DECISION -> item.needsDecision
     }
 

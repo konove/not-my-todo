@@ -90,6 +90,12 @@ data class TodoItem(
     val comments: List<Comment> = emptyList(),
     /** Every place the item is attached to; none for a plain note. */
     val anchors: List<Anchor> = emptyList(),
+    /** The ids of the items that must be closed before this one can be worked on. */
+    val blockedBy: List<String> = emptyList(),
+    /** The id of the item that already says what this one says. */
+    val duplicateOf: String? = null,
+    /** The id of the item this one is a part of. A parent has no parent of its own. */
+    val parent: String? = null,
     /** The JSON fields this version does not know, written back as they came. */
     val unknown: Map<String, JsonElement> = emptyMap(),
 ) {
@@ -110,8 +116,35 @@ data class TodoFile(
     val unknown: Map<String, JsonElement> = emptyMap(),
 )
 
+/** How [items], all those of one file, refer to each other. A link to an item that is not there counts for nothing. */
+class Links(items: List<TodoItem>) {
+    private val byId = items.associateBy { it.id }
+    private val parts = items.filter { it.parent != null }.groupBy { it.parent }
+
+    /** The items [item] still waits for: those it is blocked by that are not closed. */
+    fun openBlockers(item: TodoItem): List<TodoItem> = item.blockedBy.mapNotNull { byId[it] }.filterNot { it.isClosed }
+
+    fun isBlocked(item: TodoItem): Boolean = openBlockers(item).isNotEmpty()
+
+    /** The items [id] is the parent of, in id order. */
+    fun children(id: String): List<TodoItem> = parts[id].orEmpty()
+
+    companion object {
+        val NONE = Links(emptyList())
+    }
+}
+
 object ItemId {
     private val pattern = Regex("T-([1-9][0-9]*)")
+
+    /** An id as it may be typed: `T-7`, `t-7` or `7`. Null when it is none of those. */
+    fun normalize(raw: String): String? =
+        raw.trim().uppercase().let { if (it.toIntOrNull() != null) "T-$it" else it }.takeIf { parse(it) != null }
+
+    /** The ids in [text], separated by commas or spaces. Throws [IllegalArgumentException] on anything that is not an id. */
+    fun parseList(text: String): List<String> = text.split(Regex("[\\s,]+")).filter { it.isNotEmpty() }.map {
+        normalize(it) ?: throw IllegalArgumentException("\"$it\" is not an item id: write T-1, T-2, ...")
+    }.distinct()
 
     fun of(n: Int): String = "T-$n"
 

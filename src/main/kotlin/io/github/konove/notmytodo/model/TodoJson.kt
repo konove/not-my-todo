@@ -22,6 +22,7 @@ object TodoJson {
     private val fileKeys = setOf("version", "nextId", "items")
     private val itemKeys = setOf(
         "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor", "anchors",
+        "blockedBy", "duplicateOf", "parent",
     )
     private val commentKeys = setOf("author", "time", "text")
     private val anchorKeys = setOf("path", "startLine", "endLine", "text", "before", "after", "lost")
@@ -52,6 +53,9 @@ object TodoJson {
         o.addProperty("author", item.author.json)
         o.addProperty("created", item.created)
         o.addProperty("updated", item.updated)
+        if (item.blockedBy.isNotEmpty()) o.add("blockedBy", strings(item.blockedBy))
+        item.duplicateOf?.let { o.addProperty("duplicateOf", it) }
+        item.parent?.let { o.addProperty("parent", it) }
         if (item.comments.isNotEmpty()) {
             val comments = JsonArray()
             item.comments.forEach { c ->
@@ -134,7 +138,9 @@ object TodoJson {
             id = id, title = title, details = o.str("details").orEmpty(), priority = priority,
             tags = Tags.normalizeAll(o.strList("tags")), status = status, author = author,
             created = o.str("created").orEmpty(), updated = o.str("updated").orEmpty(), comments = comments,
-            anchors = anchors, unknown = o.unknown(itemKeys),
+            anchors = anchors, blockedBy = o.strList("blockedBy").mapNotNull(ItemId::normalize).distinct(),
+            duplicateOf = o.str("duplicateOf")?.let(ItemId::normalize), parent = o.str("parent")?.let(ItemId::normalize),
+            unknown = o.unknown(itemKeys),
         )
     }
 

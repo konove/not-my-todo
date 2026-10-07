@@ -11,6 +11,8 @@ import io.github.konove.notmytodo.ide.AnchorTracker
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
@@ -29,7 +31,9 @@ class TodoTools(private val project: Project) {
     fun list(
         status: String? = null, tags: String? = null, priority: String? = null, path: String? = null,
         withoutTags: String? = null, text: String? = null, compact: Boolean = false, lost: Boolean = false,
+        blocked: Boolean? = null, parent: String? = null,
     ): String {
+        val partOf = parent?.takeIf { it.isNotBlank() }?.let(::parseId)
         val statuses = words(status).map(::parseStatus)
         val wantedPriority = priority?.takeIf { it.isNotBlank() }?.let(::parsePriority)
         val wanted = Tags.parseList(tags.orEmpty())
@@ -37,20 +41,24 @@ class TodoTools(private val project: Project) {
         val under = path?.takeIf { it.isNotBlank() }?.let(::directory)
         val needles = words(text)
         flushAnchors()
-        val found = readable().filter { item ->
+        val all = readable()
+        val links = Links(all)
+        val found = all.filter { item ->
             (statuses.isEmpty() || item.status in statuses) &&
                 (wantedPriority == null || item.priority == wantedPriority) &&
                 item.tags.containsAll(wanted) && unwanted.none { it in item.tags } &&
                 (under == null || item.anchors.any { isUnder(it.path, under) }) &&
                 (!lost || item.anyLost) &&
+                (blocked == null || links.isBlocked(item) == blocked) &&
+                (partOf == null || item.parent == partOf) &&
                 needles.all { item.title.contains(it, ignoreCase = true) || item.details.contains(it, ignoreCase = true) }
         }
         // One item per line: pretty printing would triple the size of a list that is meant to be read whole.
         if (compact) {
-            return if (found.isEmpty()) "[]" else found.joinToString(",\n", "[\n", "\n]") { compactRow(it).toString() }
+            return if (found.isEmpty()) "[]" else found.joinToString(",\n", "[\n", "\n]") { compactRow(it, links).toString() }
         }
         val array = JsonArray()
-        found.forEach { array.add(summary(it)) }
+        found.forEach { array.add(summary(it, links)) }
         return TodoJson.toText(array)
     }
 
@@ -58,6 +66,11 @@ class TodoTools(private val project: Project) {
         flushAnchors()
         val item = item(id)
         val json = TodoJson.encodeItem(item)
+        val links = Links(readable())
+        if (links.isBlocked(item)) json.addProperty("blocked", true)
+        links.children(id).takeIf { it.isNotEmpty() }?.let { parts ->
+            json.add("children", JsonArray().also { a -> parts.forEach { a.add(it.id) } })
+        }
         // Written in the order of item.anchors.
         val encoded = json.getAsJsonArray("anchors")
         item.anchors.forEachIndexed { index, anchor ->
@@ -76,6 +89,7 @@ class TodoTools(private val project: Project) {
     fun create(
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String? = null,
+        blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
     ): String {
         if (title.isBlank()) throw TodoToolError("title must not be empty")
         val parsedPriority = priority?.let(::parsePriority) ?: Priority.P2
@@ -84,14 +98,23 @@ class TodoTools(private val project: Project) {
         }
         val first = path?.let { buildAnchor(Place(filePath(it), startLine, endLine)) }
         val anchors = (listOfNotNull(first) + parsePlaces(places).map(::buildAnchor)).distinctBy(Anchor::place)
-        val draft = Draft(title, details.orEmpty(), parsedPriority, Tags.parseList(tags.orEmpty()), Author.AGENT, anchors)
+        val draft = Draft(
+            title, details.orEmpty(), parsedPriority, Tags.parseList(tags.orEmpty()), Author.AGENT, anchors,
+            parseIds(blockedBy.orEmpty()), duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
+            parent?.takeIf { it.isNotBlank() }?.let(::parseId),
+        )
         return TodoJson.toText(TodoJson.encodeItem(storeCall { store.create(draft) }))
     }
 
     fun update(
         id: String, title: String?, details: String?, priority: String?, tags: String?, status: String?,
         path: String? = null, startLine: Int? = null, endLine: Int? = null, places: String? = null,
+        blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
     ): String {
+        // An empty text takes the link away; a text left out leaves it as it is.
+        val blockers = blockedBy?.let(::parseIds)
+        val original = duplicateOf?.let { if (it.isBlank()) null else parseId(it) }
+        val partOf = parent?.let { if (it.isBlank()) null else parseId(it) }
         val parsedPriority = priority?.let(::parsePriority)
         val parsedStatus = status?.let(::parseStatus)
         val parsedTags = tags?.let(Tags::parseList)
@@ -128,6 +151,9 @@ class TodoTools(private val project: Project) {
                     priority = parsedPriority ?: it.priority,
                     tags = parsedTags ?: it.tags,
                     status = parsedStatus ?: it.status,
+                    blockedBy = blockers ?: it.blockedBy,
+                    duplicateOf = if (duplicateOf != null) original else it.duplicateOf,
+                    parent = if (parent != null) partOf else it.parent,
                 )
             }
         }
@@ -178,8 +204,9 @@ class TodoTools(private val project: Project) {
         return AnchorResolver.capture(path, text, start, end)
     }
 
-    private fun summary(item: TodoItem): JsonObject {
+    private fun summary(item: TodoItem, links: Links): JsonObject {
         val json = TodoJson.encodeItem(item)
+        if (links.isBlocked(item)) json.addProperty("blocked", true)
         json.getAsJsonArray("anchors")?.forEach {
             it.asJsonObject.apply {
                 remove("text")
@@ -190,7 +217,7 @@ class TodoTools(private val project: Project) {
         return json
     }
 
-    private fun compactRow(item: TodoItem): JsonObject {
+    private fun compactRow(item: TodoItem, links: Links): JsonObject {
         val json = JsonObject()
         json.addProperty("id", item.id)
         json.addProperty("title", item.title)
@@ -199,6 +226,12 @@ class TodoTools(private val project: Project) {
         json.add("tags", JsonArray().also { a -> item.tags.forEach(a::add) })
         if (item.anchors.isNotEmpty()) json.addProperty("at", item.anchors.joinToString(", ") { it.place })
         if (item.anyLost) json.addProperty("lost", true)
+        // Only the blockers still in the way: a closed one no longer says anything about this item.
+        links.openBlockers(item).takeIf { it.isNotEmpty() }?.let { open ->
+            json.addProperty("blockedBy", open.joinToString(" ") { it.id })
+        }
+        item.duplicateOf?.let { json.addProperty("duplicateOf", it) }
+        item.parent?.let { json.addProperty("parent", it) }
         return json
     }
 
@@ -248,6 +281,15 @@ class TodoTools(private val project: Project) {
     } catch (e: StoreException) {
         throw TodoToolError(e.message ?: "the change could not be saved")
     }
+
+    private fun parseIds(value: String): List<String> = try {
+        ItemId.parseList(value)
+    } catch (e: IllegalArgumentException) {
+        throw TodoToolError(e.message ?: "not an item id")
+    }
+
+    private fun parseId(value: String): String =
+        ItemId.normalize(value) ?: throw TodoToolError("\"${value.trim()}\" is not an item id: write T-1, T-2, ...")
 
     private fun parsePriority(value: String): Priority =
         Priority.fromJson(value) ?: throw TodoToolError("priority must be one of p1, p2, p3")

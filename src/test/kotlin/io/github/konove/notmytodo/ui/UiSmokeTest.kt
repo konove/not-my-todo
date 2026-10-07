@@ -279,4 +279,33 @@ class UiSmokeTest : BasePlatformTestCase() {
         pane.removeAnchor()
         assertFalse(pane.codeBox.isVisible)
     }
+
+    fun `test the detail pane shows and edits the links of an item`() {
+        val store = TodoService.getInstance(project).store
+        val whole = store.create(Draft("whole"))
+        val first = store.create(Draft("first", parent = whole.id))
+        val second = store.create(Draft("second", blockedBy = listOf(first.id), parent = whole.id))
+        val pane = DetailPane(project)
+        var opened: String? = null
+        pane.onOpen = { opened = it }
+
+        pane.show(second)
+        assertEquals("Blocked by ${first.id}  ·  Part of ${whole.id}", pane.viewLinks.getCharSequence(false).toString())
+        assertTrue(pane.viewMeta.getCharSequence(false).toString().trim().endsWith("blocked"))
+        pane.show(whole)
+        assertEquals("Parts, 0/2 closed: ${first.id} ${second.id}", pane.viewLinks.getCharSequence(false).toString())
+        pane.show(store.update(first.id) { it.copy(status = Status.DONE) })
+        pane.show(store.find(second.id))
+        assertTrue(pane.viewMeta.getCharSequence(false).toString().trim().endsWith("agent can fix"))
+
+        val other = store.create(Draft("other"))
+        pane.show(other)
+        assertEquals("", pane.viewLinks.getCharSequence(false).toString())
+        pane.linkFields[0].text = "${first.id} ${second.id}"
+        pane.linkFields[1].text = second.id.lowercase()
+        pane.save()
+        assertEquals(listOf(first.id, second.id), store.find(other.id)!!.blockedBy)
+        assertEquals(second.id, store.find(other.id)!!.duplicateOf)
+        assertNull(opened)
+    }
 }

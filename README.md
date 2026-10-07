@@ -18,6 +18,12 @@ AI agent take items off your hands.
   is needed is told to add the tag and say what has to be decided. Fix on a
   tagged item asks the agent for the options and its recommendation, and it
   does the work only after you have chosen.
+- **Links:** an item can be blocked by other items, be a duplicate of one, and
+  be a part of one. A blocked item shows a padlock and is left out of Agent
+  can fix until every item it waits for is closed. Parts stand under their
+  parent in the list, which shows how many of them are closed; parts go one
+  level deep. The detail pane shows the links, an id there goes to that item,
+  and Edit changes them.
 - **Anchors:** items follow their code as you edit, switch branches, or let an
   agent change files. If the code can no longer be found the item shows
   "Anchor lost"; select the code and press Re-attach to selection. An item can
@@ -54,10 +60,10 @@ With the IDE's MCP server enabled, these tools are available:
 
 | Tool | Purpose |
 |---|---|
-| `todo_list` | List items, filtered by status, tags to have or not have, priority, file or directory, and text; `compact` leaves out details |
+| `todo_list` | List items, filtered by status, tags to have or not have, priority, file or directory, text, `blocked` and `parent`; `compact` leaves out details |
 | `todo_get` | One item with its current line range and code |
-| `todo_create` | Add an item, optionally attached to `path` and lines |
-| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code |
+| `todo_create` | Add an item, optionally attached to `path` and lines, and linked with `blockedBy`, `duplicateOf` and `parent` |
+| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of

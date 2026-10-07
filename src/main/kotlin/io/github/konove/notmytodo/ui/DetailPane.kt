@@ -43,6 +43,8 @@ import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Comment
+import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
@@ -50,6 +52,7 @@ import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.store.StoreException
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
@@ -58,6 +61,8 @@ import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.Rectangle
 import java.awt.Shape
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
 import javax.swing.Icon
 import javax.swing.JButton
@@ -248,6 +253,15 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private val priorityBox = ComboBox(Priority.entries.toTypedArray()).apply { toolTipText = "Priority" }
     private val statusBox = ComboBox(Status.entries.toTypedArray()).apply { toolTipText = "Status" }
     private val tagsField = JBTextField().apply { emptyText.text = "#tags" }
+    private val blockedField = JBTextField().apply { emptyText.text = "Blocked by: T-1 T-2" }
+    private val duplicateField = JBTextField().apply { emptyText.text = "Duplicate of" }
+    private val parentField = JBTextField().apply { emptyText.text = "Part of" }
+
+    /** Blocked by, duplicate of, part of. */
+    internal val linkFields get() = listOf(blockedField, duplicateField, parentField)
+
+    /** Shows the item with this id; set by the panel that holds the pane. */
+    var onOpen: (String) -> Unit = {}
     internal val whereLabel = JBLabel().apply { font = JBUI.Fonts.smallFont() }
 
     /** The arrows that step through the anchors, shown beside the place when the item has several. */
@@ -269,6 +283,22 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     internal val viewTitle: JBTextArea = readOnlyText().apply { font = font.deriveFont(Font.BOLD, font.size2D + 1f) }
     internal val viewMeta = SimpleColoredComponent().apply { isOpaque = false }
     internal val metaStrip = MetaStrip().apply { add(viewMeta) }
+
+    /** The item's links to other items; an id is clicked to go to that item. */
+    internal val viewLinks = SimpleColoredComponent().apply {
+        isOpaque = false
+        val mouse = object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                (getFragmentTagAt(e.x) as? String)?.let { onOpen(it) }
+            }
+
+            override fun mouseMoved(e: MouseEvent) {
+                cursor = if (getFragmentTagAt(e.x) != null) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+            }
+        }
+        addMouseListener(mouse)
+        addMouseMotionListener(mouse)
+    }
     private var shownTags: List<String>? = null
     internal val viewDetails = JEditorPane().apply {
         editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
@@ -288,6 +318,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private lateinit var viewRows: List<Row>
     private lateinit var editRows: List<Row>
     private lateinit var viewDetailsRow: Row
+    private lateinit var viewLinksRow: Row
     private val codeArea = JBTextArea(4, 20).apply {
         isEditable = false
         font = EditorUtil.getEditorFont()
@@ -348,16 +379,22 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     internal val textColumn = panel {
         val title = row { cell(viewTitle).align(AlignX.FILL) }
         val meta = row { cell(metaStrip).align(AlignX.FILL) }
+        viewLinksRow = row { cell(viewLinks).align(AlignX.FILL) }
         val titleEdit = row { cell(titleField).align(AlignX.FILL) }
         val factsEdit = row {
             cell(priorityBox)
             cell(statusBox)
             cell(tagsField).align(AlignX.FILL).resizableColumn()
         }
+        val linksEdit = row {
+            cell(blockedField).align(AlignX.FILL).resizableColumn()
+            cell(duplicateField)
+            cell(parentField)
+        }
         viewDetailsRow = row { cell(viewDetailsScroll).align(Align.FILL) }.resizableRow()
         val detailsEdit = row { cell(JBScrollPane(detailsArea)).align(Align.FILL) }.resizableRow()
         viewRows = listOf(title, meta)
-        editRows = listOf(titleEdit, factsEdit, detailsEdit)
+        editRows = listOf(titleEdit, factsEdit, linksEdit, detailsEdit)
     }
     internal val columns = Columns(textColumn, codeBox) { editing || viewDetailsScroll.isVisible }
 
@@ -429,6 +466,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val item = current
         viewRows.forEach { it.visible(!editing) }
         editRows.forEach { it.visible(editing) }
+        viewLinksRow.visible(!editing && viewLinks.iterator().hasNext())
         viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty()))
         toolbar.updateActionsAsync()
         columns.revalidate()
@@ -461,7 +499,12 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (shown == null || Tags.parseList(tagsField.text) == shown.tags) {
             tagsField.text = item.tags.joinToString(" ") { "#$it" }
         }
+        if (shown == null || blockedField.text == shown.blockedBy.joinToString(" ")) blockedField.text = item.blockedBy.joinToString(" ")
+        if (shown == null || duplicateField.text == shown.duplicateOf.orEmpty()) duplicateField.text = item.duplicateOf.orEmpty()
+        if (shown == null || parentField.text == shown.parent.orEmpty()) parentField.text = item.parent.orEmpty()
         val code = CodeTodos.isCode(item)
+        val links = if (code) Links.NONE else Links(store.items)
+        showLinks(item, links)
         val anchor = item.anchors.getOrNull(anchorIndex)
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
@@ -485,6 +528,8 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             if (item.needsDecision) {
                 viewMeta.append("  ·  ", grey)
                 viewMeta.append("needs my decision", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+            } else if (links.isBlocked(item)) {
+                viewMeta.append("  ·  blocked", grey)
             } else if (!item.isClosed && item.status != Status.FIXED) {
                 viewMeta.append("  ·  agent can fix", grey)
             }
@@ -503,6 +548,27 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (anchor != null) showCode(anchor, PriorityColors.tint(item.priority))
         deleteToolbar.updateActionsAsync()
         showMode()
+    }
+
+    /** Fills [viewLinks]: what the item waits for, duplicates and is a part of, and the parts it has. A closed item's id is struck out. */
+    private fun showLinks(item: TodoItem, links: Links) {
+        val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
+        viewLinks.clear()
+        fun ids(label: String, ids: List<String>) {
+            if (ids.isEmpty()) return
+            viewLinks.append((if (viewLinks.iterator().hasNext()) "  ·  " else "") + label, grey)
+            ids.forEach { id ->
+                val closed = store.find(id)?.isClosed != false
+                val style = if (closed) SimpleTextAttributes(SimpleTextAttributes.STYLE_STRIKEOUT, JBUI.CurrentTheme.Link.Foreground.ENABLED) else SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES
+                viewLinks.append(" ")
+                viewLinks.append(id, style, id)
+            }
+        }
+        val parts = links.children(item.id)
+        ids("Blocked by", item.blockedBy)
+        ids("Duplicate of", listOfNotNull(item.duplicateOf))
+        ids("Part of", listOfNotNull(item.parent))
+        ids("Parts, ${parts.count { it.isClosed }}/${parts.size} closed:", parts.map { it.id })
     }
 
     /**
@@ -589,6 +655,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             val priority = priorityBox.selectedItem as Priority
             val status = statusBox.selectedItem as Status
             val tags = Tags.parseList(tagsField.text)
+            val blockedBy = ItemId.parseList(blockedField.text)
+            val duplicateOf = ItemId.parseList(duplicateField.text).also { require(it.size < 2) { "an item is a duplicate of one item" } }.firstOrNull()
+            val parent = ItemId.parseList(parentField.text).also { require(it.size < 2) { "an item is a part of one item" } }.firstOrNull()
             // Only the fields I edited are written; the rest keep whatever is in the file now.
             val saved = store.update(item.id) {
                 it.copy(
@@ -597,11 +666,16 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
                     priority = if (priority != item.priority) priority else it.priority,
                     status = if (status != item.status) status else it.status,
                     tags = if (tags != item.tags) tags else it.tags,
+                    blockedBy = if (blockedBy != item.blockedBy) blockedBy else it.blockedBy,
+                    duplicateOf = if (duplicateOf != item.duplicateOf) duplicateOf else it.duplicateOf,
+                    parent = if (parent != item.parent) parent else it.parent,
                 )
             }
             current = null
             show(saved)
         } catch (e: StoreException) {
+            Messages.showErrorDialog(project, e.message, "Not My TODO")
+        } catch (e: IllegalArgumentException) {
             Messages.showErrorDialog(project, e.message, "Not My TODO")
         }
     }

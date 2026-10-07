@@ -276,4 +276,53 @@ class TodoToolsTest : BasePlatformTestCase() {
         tools.update("T-1", null, null, null, null, null, null, null, null)
         assertTrue(store.find("T-1")!!.anchors.isEmpty())
     }
+
+    fun `test links are set, replaced and taken away`() {
+        tools.create("whole", null, null, null, null, null, null)
+        tools.create("first", null, null, null, null, null, null, parent = "T-1")
+        tools.create("second", null, null, null, null, null, null, blockedBy = "T-2", parent = "t-1")
+        tools.create("again", null, null, null, null, null, null, duplicateOf = "2")
+        assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
+        assertEquals("T-1", store.find("T-3")!!.parent)
+        assertEquals("T-2", store.find("T-4")!!.duplicateOf)
+
+        tools.update("T-3", "renamed", null, null, null, null)
+        assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
+        tools.update("T-3", null, null, null, null, null, blockedBy = "T-2, T-4")
+        assertEquals(listOf("T-2", "T-4"), store.find("T-3")!!.blockedBy)
+        assertEquals("T-1", store.find("T-3")!!.parent)
+        tools.update("T-3", null, null, null, null, null, blockedBy = "", parent = "")
+        assertTrue(store.find("T-3")!!.blockedBy.isEmpty())
+        assertNull(store.find("T-3")!!.parent)
+        tools.update("T-4", null, null, null, null, null, duplicateOf = " ")
+        assertNull(store.find("T-4")!!.duplicateOf)
+
+        failsWith("not an item id") { tools.update("T-3", null, null, null, null, null, blockedBy = "second") }
+        failsWith("T-9") { tools.update("T-3", null, null, null, null, null, parent = "T-9") }
+        failsWith("itself") { tools.update("T-3", null, null, null, null, null, blockedBy = "T-3") }
+        failsWith("one level") { tools.create("deep", null, null, null, null, null, null, parent = "T-2") }
+    }
+
+    fun `test list and get say what is blocked and what an item is made of`() {
+        tools.create("whole", null, null, null, null, null, null)
+        tools.create("first", null, null, null, null, null, null, parent = "T-1")
+        tools.create("second", null, null, null, null, null, null, blockedBy = "T-2", parent = "T-1")
+        fun ids(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject.get("id").asString }
+
+        assertEquals(listOf("T-3"), ids(tools.list(blocked = true)))
+        assertEquals(listOf("T-1", "T-2"), ids(tools.list(blocked = false)))
+        assertEquals(listOf("T-2", "T-3"), ids(tools.list(parent = "T-1")))
+        val row = JsonParser.parseString(tools.list(compact = true)).asJsonArray[2].asJsonObject
+        assertEquals("T-2", row.get("blockedBy").asString)
+        assertEquals("T-1", row.get("parent").asString)
+        assertTrue(JsonParser.parseString(tools.list()).asJsonArray[2].asJsonObject.get("blocked").asBoolean)
+        assertTrue(JsonParser.parseString(tools.get("T-3")).asJsonObject.get("blocked").asBoolean)
+        assertEquals("[\"T-2\",\"T-3\"]", JsonParser.parseString(tools.get("T-1")).asJsonObject.get("children").toString())
+
+        tools.update("T-2", null, null, null, null, "done")
+        assertEquals(emptyList<String>(), ids(tools.list(blocked = true)))
+        assertFalse(JsonParser.parseString(tools.get("T-3")).asJsonObject.has("blocked"))
+        assertFalse(JsonParser.parseString(tools.list(compact = true)).asJsonArray[2].asJsonObject.has("blockedBy"))
+        assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
+    }
 }

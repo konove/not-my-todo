@@ -47,6 +47,7 @@ import io.github.konove.notmytodo.ide.EditorAnchors
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -133,6 +134,7 @@ class TodoPanel(
     private val shownItems: List<TodoItem> get() = model.items.filterIsInstance<ItemRow>().map { it.item }
 
     init {
+        detail.onOpen = ::select
         nav.cellRenderer = NavRenderer()
         nav.fixedCellHeight = JBUI.scale(ROW_HEIGHT)
         // The Tags heading folds on a click but is never selected; the arrow keys step over it.
@@ -402,7 +404,7 @@ class TodoPanel(
             else ItemFilter.apply(
                 all, ItemQuery(search.text, scope, currentPath, showClosed, tag, priorities, statuses, authors, sort),
             )
-            model.replaceAll(ItemGroups.rows(listed, groupBy, collapsed))
+            model.replaceAll(ItemGroups.rows(listed, groupBy, collapsed, Links(store.items)))
             val index = model.items.indexOfFirst {
                 if (selectedHeader != null) (it as? GroupHeader)?.key == selectedHeader
                 else (it as? ItemRow)?.item?.id == selectedId
@@ -609,7 +611,7 @@ class TodoPanel(
             list: JList<out Any>, value: Any, index: Int, selected: Boolean, hasFocus: Boolean,
         ): Component =
             if (value is GroupHeader) headers.component(list, value, selected, value.depth)
-            else (value as ItemRow).let { items.component(list, it.item, selected, it.depth) }
+            else (value as ItemRow).let { items.component(list, it, selected, it.depth) }
     }
 
     private class HeaderRenderer(private val cell: SimpleColoredComponent = cell()) : RoundedRenderer<GroupHeader>(cell) {
@@ -626,8 +628,9 @@ class TodoPanel(
         }
     }
 
-    private class ItemRenderer(private val cells: Cells = Cells()) : RoundedRenderer<TodoItem>(cells) {
-        override fun customize(value: TodoItem, selected: Boolean) {
+    private class ItemRenderer(private val cells: Cells = Cells()) : RoundedRenderer<ItemRow>(cells) {
+        override fun customize(row: ItemRow, selected: Boolean) {
+            val value = row.item
             val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES
             val code = CodeTodos.isCode(value)
             val (mark, title, tags, place, status) = cells.all
@@ -635,7 +638,11 @@ class TodoPanel(
             val updated = cells.all[6]
             cells.all.forEach { it.clear() }
             mark.icon = if (code) AllIcons.General.TodoDefault else PriorityColors.icon(value.priority)
-            title.icon = if (value.needsDecision) AllIcons.General.User else null
+            title.icon = when {
+                value.needsDecision -> AllIcons.General.User
+                row.blocked -> AllIcons.Nodes.Padlock
+                else -> null
+            }
             title.append(
                 value.title,
                 when {
@@ -644,6 +651,7 @@ class TodoPanel(
                     else -> SimpleTextAttributes.REGULAR_ATTRIBUTES
                 },
             )
+            if (row.parts > 0) title.append("  ${row.partsClosed}/${row.parts} closed", grey)
             tags.append(value.tags.joinToString(" ") { "#$it" }, grey)
             val anchor = value.anchor
             when {

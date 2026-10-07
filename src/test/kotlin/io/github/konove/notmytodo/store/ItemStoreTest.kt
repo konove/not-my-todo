@@ -203,4 +203,63 @@ class ItemStoreTest {
         assertThrows(StoreException::class.java) { s.comment("T-9", Author.AGENT, "x") }
         assertEquals(emptyList<Any>(), s.find("T-1")!!.comments)
     }
+
+    @Test
+    fun `links must lead to other items that are there`() {
+        val s = store()
+        s.create(Draft("a"))
+        assertEquals(listOf("T-1"), s.create(Draft("b", blockedBy = listOf("T-1", "T-1"), duplicateOf = "T-1", parent = "T-1")).blockedBy)
+        assertThrows(StoreException::class.java) { s.create(Draft("c", blockedBy = listOf("T-9"))) }
+        assertThrows(StoreException::class.java) { s.create(Draft("c", parent = "T-9")) }
+        assertThrows(StoreException::class.java) { s.update("T-1") { it.copy(blockedBy = listOf("T-1")) } }
+        assertThrows(StoreException::class.java) { s.update("T-1") { it.copy(duplicateOf = "T-1") } }
+        assertThrows(StoreException::class.java) { s.update("T-1") { it.copy(parent = "T-1") } }
+        assertEquals(listOf("T-1", "T-2"), s.items.map { it.id })
+        assertEquals("T-3", s.create(Draft("c")).id)
+    }
+
+    @Test
+    fun `links must not go round in a circle`() {
+        val s = store()
+        s.create(Draft("a"))
+        s.create(Draft("b", blockedBy = listOf("T-1"), duplicateOf = "T-1"))
+        s.create(Draft("c", blockedBy = listOf("T-2"), duplicateOf = "T-2"))
+        assertThrows(StoreException::class.java) { s.update("T-1") { it.copy(blockedBy = listOf("T-3")) } }
+        assertThrows(StoreException::class.java) { s.update("T-1") { it.copy(duplicateOf = "T-3") } }
+        assertEquals(listOf("T-2"), s.update("T-1") { it.copy(blockedBy = emptyList()) }.let { s.find("T-3")!!.blockedBy })
+    }
+
+    @Test
+    fun `parts go one level deep`() {
+        val s = store()
+        s.create(Draft("whole"))
+        s.create(Draft("part", parent = "T-1"))
+        s.create(Draft("other"))
+        assertThrows(StoreException::class.java) { s.create(Draft("deeper", parent = "T-2")) }
+        assertThrows(StoreException::class.java) { s.update("T-1") { it.copy(parent = "T-3") } }
+        assertEquals("T-3", s.update("T-2") { it.copy(parent = "T-3") }.parent)
+        assertEquals("T-3", s.update("T-1") { it.copy(parent = "T-3") }.parent)
+    }
+
+    @Test
+    fun `a bad link already in the file does not stop other changes`() {
+        Files.createDirectories(file.parent)
+        Files.writeString(file, """{"version":2,"nextId":2,"items":[{"id":"T-1","title":"a","blockedBy":["T-9"]}]}""")
+        val s = store()
+        assertEquals("b", s.update("T-1") { it.copy(title = "b") }.title)
+        assertEquals(listOf("T-9"), s.find("T-1")!!.blockedBy)
+    }
+
+    @Test
+    fun `deleting an item takes away the links to it`() {
+        val s = store()
+        s.create(Draft("a"))
+        s.create(Draft("b"))
+        s.create(Draft("c", blockedBy = listOf("T-1", "T-2"), duplicateOf = "T-1", parent = "T-1"))
+        s.delete("T-1")
+        val left = store().find("T-3")!!
+        assertEquals(listOf("T-2"), left.blockedBy)
+        assertNull(left.duplicateOf)
+        assertNull(left.parent)
+    }
 }

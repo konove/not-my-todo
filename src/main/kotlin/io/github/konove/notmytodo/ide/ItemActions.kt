@@ -16,6 +16,7 @@ import io.github.konove.notmytodo.handoff.HandoffDialog
 import io.github.konove.notmytodo.handoff.PromptBuilder
 import io.github.konove.notmytodo.handoff.PromptOptions
 import io.github.konove.notmytodo.handoff.TargetChoice
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -30,9 +31,16 @@ import java.awt.datatransfer.StringSelection
 object ItemActions {
     const val TOOL_WINDOW_ID = "Not My TODO"
 
+    /** Closing a parent that still has open parts is asked about first: it is allowed, but seldom meant. */
     fun setStatus(project: Project, id: String, status: Status) {
+        val store = TodoService.getInstance(project).store
+        if (status == Status.DONE || status == Status.WONT_FIX) {
+            val open = Links(store.items).children(id).count { !it.isClosed }
+            val parts = if (open == 1) "1 open part" else "$open open parts"
+            if (open > 0 && Messages.showYesNoDialog(project, "$id still has $parts. Close it anyway?", "Not My TODO", null) != Messages.YES) return
+        }
         try {
-            TodoService.getInstance(project).store.update(id) { it.copy(status = status) }
+            store.update(id) { it.copy(status = status) }
         } catch (e: StoreException) {
             Messages.showErrorDialog(project, e.message, "Not My TODO")
         }

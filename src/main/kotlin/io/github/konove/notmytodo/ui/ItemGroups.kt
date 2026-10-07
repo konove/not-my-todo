@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.ide.CodeTodos
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.TodoItem
 import java.util.TreeMap
 
@@ -16,8 +17,13 @@ data class GroupHeader(
     val depth: Int = 0, val kind: GroupKind = GroupKind.OTHER,
 )
 
-/** An item in the item list, [depth] levels in. */
-data class ItemRow(val item: TodoItem, val depth: Int = 0)
+/**
+ * An item in the item list, [depth] levels in. [blocked] while it waits for another item. A parent
+ * has [parts] parts, in the list or not, [partsClosed] of them closed.
+ */
+data class ItemRow(
+    val item: TodoItem, val depth: Int = 0, val blocked: Boolean = false, val partsClosed: Int = 0, val parts: Int = 0,
+)
 
 object ItemGroups {
     const val NOTES = "Notes"
@@ -25,18 +31,32 @@ object ItemGroups {
     /**
      * The rows of the list: [items] in the order given, under headings. A heading whose key is in
      * [collapsed] hides everything below it. Code comments have no status or priority and are
-     * left flat when asked to group by those.
+     * left flat when asked to group by those. A part stands under its parent, one level further in,
+     * when both are under the same heading; [links] are those of every item, listed or not.
      */
-    fun rows(items: List<TodoItem>, by: GroupBy, collapsed: Set<String>): List<Any> {
-        if (by == GroupBy.DIRECTORY) return tree(items, collapsed)
-        val keys = items.map { key(it, by) ?: return items.map(::ItemRow) }
+    fun rows(items: List<TodoItem>, by: GroupBy, collapsed: Set<String>, links: Links = Links.NONE): List<Any> {
+        if (by == GroupBy.DIRECTORY) return tree(items, collapsed, links)
+        val keys = items.map { key(it, by) ?: return nested(items, 0, links) }
         val groups = items.indices.groupBy { keys[it] }.toSortedMap(compareBy<Pair<Int, String>> { it.first }.thenBy { it.second })
         val kind = if (by == GroupBy.FILE) GroupKind.FILE else GroupKind.OTHER
         return groups.flatMap { (key, members) ->
             val label = key.second
             val closed = label in collapsed
             listOf(GroupHeader(label, label, members.size, closed, 0, if (label == NOTES) GroupKind.OTHER else kind)) +
-                if (closed) emptyList() else members.map { ItemRow(items[it], 1) }
+                if (closed) emptyList() else nested(members.map { items[it] }, 1, links)
+        }
+    }
+
+    /** [members] as rows [depth] levels in, in the order given but for the parts, which follow their parent. */
+    private fun nested(members: List<TodoItem>, depth: Int, links: Links): List<ItemRow> {
+        val ids = members.mapTo(HashSet()) { it.id }
+        val parts = members.filter { it.parent in ids }.groupBy { it.parent }
+        fun row(item: TodoItem, at: Int): ItemRow {
+            val all = links.children(item.id)
+            return ItemRow(item, at, links.isBlocked(item), all.count { it.isClosed }, all.size)
+        }
+        return members.filter { it.parent !in ids }.flatMap { item ->
+            listOf(row(item, depth)) + parts[item.id].orEmpty().map { row(it, depth + 1) }
         }
     }
 
@@ -62,7 +82,7 @@ object ItemGroups {
     }
 
     /** Directories, then their files, then the items; a directory holding only one directory is shown joined to it. */
-    private fun tree(items: List<TodoItem>, collapsed: Set<String>): List<Any> {
+    private fun tree(items: List<TodoItem>, collapsed: Set<String>, links: Links): List<Any> {
         val root = Dir("")
         val notes = ArrayList<TodoItem>()
         for (item in items) {
@@ -96,14 +116,14 @@ object ItemGroups {
                 val key = if (dir.path.isEmpty()) name else "${dir.path}/$name"
                 val closed = key in collapsed
                 out += GroupHeader(key, name, members.size, closed, depth, GroupKind.FILE)
-                if (!closed) members.forEach { out += ItemRow(it, depth + 1) }
+                if (!closed) out.addAll(nested(members, depth + 1, links))
             }
         }
         emit(root, 0)
         if (notes.isNotEmpty()) {
             val closed = NOTES in collapsed
             out += GroupHeader(NOTES, NOTES, notes.size, closed)
-            if (!closed) notes.forEach { out += ItemRow(it, 1) }
+            if (!closed) out.addAll(nested(notes, 1, links))
         }
         return out
     }

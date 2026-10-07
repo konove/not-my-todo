@@ -147,4 +147,37 @@ class ItemFilterTest {
         assertEquals(listOf("T-20"), ids(Scope.ANCHOR_LOST))
         assertEquals(listOf("T-22"), ids(Scope.NOTES))
     }
+
+    @Test
+    fun `a blocked item is not one an agent can fix`() {
+        val all = listOf(
+            TodoItem("T-1", "first"), TodoItem("T-2", "waits", blockedBy = listOf("T-1")),
+            TodoItem("T-3", "closed", status = Status.DONE), TodoItem("T-4", "free again", blockedBy = listOf("T-3")),
+        )
+        assertEquals(listOf("T-1", "T-4"), ItemFilter.apply(all, ItemQuery(scope = Scope.AGENT_READY)).map { it.id })
+    }
+
+    @Test
+    fun `a part stands under its parent when both are under the same heading`() {
+        val whole = TodoItem("T-1", "whole", priority = Priority.P3)
+        val first = TodoItem("T-2", "first", priority = Priority.P1, parent = "T-1", blockedBy = listOf("T-3"))
+        val other = TodoItem("T-3", "other", priority = Priority.P2)
+        val closed = TodoItem("T-4", "closed", status = Status.DONE, parent = "T-1")
+        val all = listOf(whole, first, other, closed)
+        val links = io.github.konove.notmytodo.model.Links(all)
+        val shown = ItemFilter.apply(all, ItemQuery())
+        assertEquals(listOf("T-2", "T-3", "T-1"), shown.map { it.id })
+        assertEquals(
+            listOf(ItemRow(other), ItemRow(whole, 0, false, 1, 2), ItemRow(first, 1, true)),
+            ItemGroups.rows(shown, GroupBy.NONE, emptySet(), links),
+        )
+        assertEquals(
+            listOf<Any>(
+                GroupHeader("P1", "P1", 1, false), ItemRow(first, 1, true),
+                GroupHeader("P2", "P2", 1, false), ItemRow(other, 1),
+                GroupHeader("P3", "P3", 1, false), ItemRow(whole, 1, false, 1, 2),
+            ),
+            ItemGroups.rows(shown, GroupBy.PRIORITY, emptySet(), links),
+        )
+    }
 }
