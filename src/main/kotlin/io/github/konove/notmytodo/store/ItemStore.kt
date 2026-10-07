@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.store
 
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -117,6 +118,13 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         if (edited == old) return@mutate f to old
         val saved = if (touch) edited.copy(updated = timestamp()) else edited
         f.copy(items = f.items.map { if (it.id == id) saved else it }) to saved
+    }
+
+    /** Adds a note to the end of the item's comments. Nothing else of the item is read from the caller. */
+    fun comment(id: String, author: Author, text: String): TodoItem {
+        val note = text.trim()
+        if (note.isEmpty()) throw StoreException("the comment text must not be empty")
+        return update(id) { it.copy(comments = it.comments + Comment(author, timestamp(), note)) }
     }
 
     fun delete(id: String) {

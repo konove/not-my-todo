@@ -37,6 +37,7 @@ import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
+import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
@@ -122,7 +123,7 @@ private class RoundedBox : JPanel(BorderLayout()) {
 }
 
 /**
- * The item selected in the panel: icon buttons over its title, facts, anchored code and details.
+ * The item selected in the panel: icon buttons over its title, facts, anchored code, details and comments.
  * The Edit button swaps the title, facts and details for fields; Save writes them.
  */
 class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
@@ -151,20 +152,20 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     }
     private val viewTitle = readOnlyText().apply { font = font.deriveFont(Font.BOLD, font.size2D + 1f) }
     private val viewMeta = SimpleColoredComponent().apply { isOpaque = false }
-    private val viewDetails = JEditorPane().apply {
+    internal val viewDetails = JEditorPane().apply {
         editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
         isEditable = false
         isOpaque = false
         border = null
         addHyperlinkListener(BrowserHyperlinkListener.INSTANCE)
     }
-    private val viewDetailsScroll = ScrollPaneFactory.createScrollPane(viewDetails, true).apply {
+    internal val viewDetailsScroll = ScrollPaneFactory.createScrollPane(viewDetails, true).apply {
         isOpaque = false
         viewport.isOpaque = false
         // The row takes the height the pane has left; without this it asks for the whole text's.
         preferredSize = JBUI.size(200, 60)
     }
-    private var shownDetails: String? = null
+    private var shownDetails: Pair<String, List<Comment>>? = null
     private var editing = false
     private lateinit var viewRows: List<Row>
     private lateinit var editRows: List<Row>
@@ -309,7 +310,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val item = current
         viewRows.forEach { it.visible(!editing) }
         editRows.forEach { it.visible(editing) }
-        viewDetailsRow.visible(!editing && item?.details?.isNotBlank() == true)
+        viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty()))
         toolbar.updateActionsAsync()
         revalidate()
         repaint()
@@ -340,9 +341,10 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val anchor = item.anchor
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
-        if (item.details != shownDetails) {
-            shownDetails = item.details
-            viewDetails.text = Markdown.html(item.details)
+        val text = item.details to item.comments
+        if (text != shownDetails) {
+            shownDetails = text
+            viewDetails.text = ItemText.html(item)
             viewDetails.caretPosition = 0
         }
         val grey = SimpleTextAttributes.GRAYED_ATTRIBUTES

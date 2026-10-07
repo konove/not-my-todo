@@ -1,5 +1,7 @@
 package io.github.konove.notmytodo.handoff
 
+import io.github.konove.notmytodo.model.Comment
+import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
@@ -164,5 +166,19 @@ class PromptBuilderTest {
         assertFalse(p.contains("do not guess"))
         val only = PromptBuilder.build(TodoItem("T-3", "pick a license", tags = listOf("needs-decision")), null, "")
         assertTrue(only.contains("id \"T-3\", tags \"\" and status \"fixed\""))
+    }
+
+    @Test
+    fun `comments follow the details, oldest first`() {
+        val item = anchored.copy(comments = listOf(
+            Comment(Author.AGENT, "2026-10-06T09:00:00Z", "the cache is per unit"),
+            Comment(Author.USER, "2026-10-06T09:05:00Z", "keep it that way"),
+        ))
+        val p = PromptBuilder.build(item, fileText, "")
+        val expected = "Comments:\n- agent, 2026-10-06T09:00:00Z: the cache is per unit\n" +
+            "- user, 2026-10-06T09:05:00Z: keep it that way\n"
+        assertTrue(p, p.contains(expected))
+        assertTrue(p.indexOf("Comments:") in p.indexOf("Details:")..p.indexOf("Location:"))
+        assertFalse(PromptBuilder.build(anchored, fileText, "").contains("Comments:"))
     }
 }

@@ -208,4 +208,20 @@ class TodoToolsTest : BasePlatformTestCase() {
             Files.deleteIfExists(disk)
         }
     }
+
+    fun `test comment adds a note and does not touch the details`() {
+        store.create(Draft("a", details = "keep"))
+        tools.comment("T-1", "found the cause")
+        store.update("T-1") { it.copy(details = "edited in the IDE") }
+        val json = JsonParser.parseString(tools.comment("T-1", "and a fix")).asJsonObject
+        assertEquals("edited in the IDE", json.get("details").asString)
+        val item = store.find("T-1")!!
+        assertEquals("edited in the IDE", item.details)
+        assertEquals(listOf("found the cause", "and a fix"), item.comments.map { it.text })
+        assertTrue(item.comments.all { it.author == Author.AGENT })
+        val got = JsonParser.parseString(tools.get("T-1")).asJsonObject.getAsJsonArray("comments")
+        assertEquals("and a fix", got[1].asJsonObject.get("text").asString)
+        failsWith("text") { tools.comment("T-1", "  ") }
+        failsWith("T-9") { tools.comment("T-9", "x") }
+    }
 }

@@ -45,9 +45,13 @@ object PromptBuilder {
         }
         if (options.short && !comment) {
             out.append("\nRead the item with the todo_get tool, id \"${item.id}\". ")
-            out.append("It returns the details and the code as it is now.\n")
+            out.append("It returns the details, the comments and the code as it is now.\n")
         } else {
             if (item.details.isNotBlank()) out.append("\nDetails:\n${item.details.trim()}\n")
+            if (item.comments.isNotEmpty()) {
+                out.append("\nComments:\n")
+                item.comments.forEach { out.append("- ${it.author.json}, ${it.time}: ${it.text}\n") }
+            }
             location(out, item, fileText, options.contextLines)
         }
 

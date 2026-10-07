@@ -34,7 +34,7 @@ class TodoToolset : McpToolset {
 
     @McpTool
     @McpDescription(
-        "Get one TODO item by id (for example T-12) as JSON, with its details and, for an item anchored to code, " +
+        "Get one TODO item by id (for example T-12) as JSON, with its details, its comments and, for an item anchored to code, " +
             "the current line range and the code at those lines."
     )
     suspend fun todo_get(
@@ -58,7 +58,8 @@ class TodoToolset : McpToolset {
 
     @McpTool
     @McpDescription(
-        "Change fields of a TODO item. Only the fields you pass are changed. When you move or rewrite the code " +
+        "Change fields of a TODO item. Only the fields you pass are changed. details is replaced whole: " +
+            "to add a finding or a progress note, use todo_comment instead. When you move or rewrite the code " +
             "an item is attached to, pass startLine (and path, if the file changed) to re-attach it. Set status to \"fixed\" when you " +
             "have finished the work so the user can review it, or to \"wont_fix\" to close it without a change. " +
             "Returns the updated item as JSON."
@@ -74,6 +75,17 @@ class TodoToolset : McpToolset {
         @McpDescription("First line of the code to re-attach to, 1-based; required when re-attaching") startLine: Int? = null,
         @McpDescription("Last line of the code, 1-based and inclusive; defaults to startLine") endLine: Int? = null,
     ): String = call { it.update(id, title, details, priority, tags, status, path, startLine, endLine) }
+
+    @McpTool
+    @McpDescription(
+        "Add a comment to a TODO item: a finding, a progress note or a question for the user. It is appended to " +
+            "the item's comments with your authorship and the time, and nothing else on the item is changed, so " +
+            "prefer it to rewriting details with todo_update. Returns the updated item as JSON."
+    )
+    suspend fun todo_comment(
+        @McpDescription("Item id, for example T-12") id: String,
+        @McpDescription("The comment, as Markdown") text: String,
+    ): String = call { it.comment(id, text) }
 
     private suspend fun call(block: (TodoTools) -> String): String {
         val project = currentCoroutineContext().project

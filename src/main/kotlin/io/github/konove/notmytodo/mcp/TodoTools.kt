@@ -110,6 +110,11 @@ class TodoTools(private val project: Project) {
         return TodoJson.toText(TodoJson.encodeItem(saved))
     }
 
+    fun comment(id: String, text: String): String {
+        if (text.isBlank()) throw TodoToolError("text must not be empty")
+        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.comment(id, Author.AGENT, text) }))
+    }
+
     private fun buildAnchor(path: String, startLine: Int?, endLine: Int?): Anchor {
         val start = startLine ?: throw TodoToolError("startLine is required when path is given")
         val end = endLine ?: start

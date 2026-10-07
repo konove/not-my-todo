@@ -1,5 +1,7 @@
 package io.github.konove.notmytodo.ui
 
+import io.github.konove.notmytodo.model.Comment
+import io.github.konove.notmytodo.model.Author
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
@@ -138,5 +140,29 @@ class UiSmokeTest : BasePlatformTestCase() {
         } finally {
             Disposer.dispose(panel)
         }
+    }
+
+    fun `test detail pane shows comments under the details and when there are none`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("a"))
+        val pane = DetailPane(project)
+        pane.show(item)
+        pane.show(store.comment(item.id, Author.AGENT, "found the **cause**"))
+        val shown = pane.viewDetails.document.let { it.getText(0, it.length) }
+        assertTrue(shown, shown.contains("Agent") && shown.contains("found the cause"))
+        assertTrue(pane.viewDetailsScroll.isVisible)
+    }
+
+    fun `test item text lays comments out after the details`() {
+        val item = io.github.konove.notmytodo.model.TodoItem(
+            "T-1", "a", details = "the details",
+            comments = listOf(Comment(Author.AGENT, "2026-10-06T09:00:00Z", "a *short* note"), Comment(Author.USER, "then", "mine")),
+        )
+        val html = ItemText.html(item, java.time.ZoneId.of("Europe/Berlin"))
+        assertTrue(html, html.contains("Agent · 2026-10-06 11:00"))
+        assertTrue(html, html.contains("Me · then"))
+        assertTrue(html, html.contains("a <em>short</em> note"))
+        assertTrue(html.indexOf("the details") < html.indexOf("Agent"))
+        assertEquals(1, Regex("<body>").findAll(html).count())
     }
 }

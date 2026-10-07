@@ -49,6 +49,14 @@ data class Anchor(
     val unknown: Map<String, JsonElement> = emptyMap(),
 )
 
+/** A note added to an item after it was made. [time] is written like [TodoItem.updated]. */
+data class Comment(
+    val author: Author,
+    val time: String,
+    val text: String,
+    val unknown: Map<String, JsonElement> = emptyMap(),
+)
+
 data class TodoItem(
     val id: String,
     val title: String,
@@ -59,6 +67,8 @@ data class TodoItem(
     val author: Author = Author.USER,
     val created: String = "",
     val updated: String = "",
+    /** Oldest first. Only ever added to, so that a note never replaces what someone else wrote. */
+    val comments: List<Comment> = emptyList(),
     val anchor: Anchor? = null,
     /** The JSON fields this version does not know, written back as they came. */
     val unknown: Map<String, JsonElement> = emptyMap(),

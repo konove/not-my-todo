@@ -94,14 +94,14 @@ class TodoJsonTest {
     @Test
     fun `fields this version does not know are written back`() {
         val text = """{"version":1,"nextId":2,"schema":"x","items":[{"id":"T-1","title":"x",
-            "comments":[{"by":"me","text":"hm"}],"decision":null,
+            "votes":[{"by":"me","text":"hm"}],"decision":null,
             "anchor":{"path":"a.c","startLine":1,"column":4}}]}"""
         val file = TodoJson.decode(text)
-        assertEquals(setOf("comments", "decision"), file.items.single().unknown.keys)
+        assertEquals(setOf("votes", "decision"), file.items.single().unknown.keys)
         val written = JsonParser.parseString(TodoJson.encode(file)).asJsonObject
         val item = written.getAsJsonArray("items").single().asJsonObject
         assertEquals("x", written.get("schema").asString)
-        assertEquals("hm", item.getAsJsonArray("comments").single().asJsonObject.get("text").asString)
+        assertEquals("hm", item.getAsJsonArray("votes").single().asJsonObject.get("text").asString)
         assertTrue(item.get("decision").isJsonNull)
         assertEquals(4, item.getAsJsonObject("anchor").get("column").asInt)
         assertEquals(file, TodoJson.decode(TodoJson.encode(file)))
@@ -121,5 +121,43 @@ class TodoJsonTest {
     fun `tags are normalised`() {
         assertEquals(listOf("perf", "bug"), Tags.normalizeAll(listOf("#Perf", " bug ", "perf", "", "two words")))
         assertEquals(listOf("a", "b"), Tags.parseList("#a, b  #A"))
+    }
+
+    @Test
+    fun `comments round trip in order, after updated`() {
+        val comments = listOf(
+            Comment(Author.AGENT, "2026-10-06T09:00:00Z", "found it"),
+            Comment(Author.USER, "2026-10-06T09:05:00Z", "two\nlines"),
+        )
+        val file = TodoFile(2, 2, listOf(item(1).copy(comments = comments)))
+        val text = TodoJson.encode(file)
+        assertEquals(file, TodoJson.decode(text))
+        assertTrue(text.indexOf("\"comments\"") > text.indexOf("\"updated\""))
+        val written = JsonParser.parseString(text).asJsonObject.getAsJsonArray("items").single().asJsonObject
+        val first = written.getAsJsonArray("comments")[0].asJsonObject
+        assertEquals(listOf("author", "time", "text"), first.keySet().toList())
+        assertEquals("agent", first.get("author").asString)
+    }
+
+    @Test
+    fun `an item without comments has no comments key`() {
+        assertTrue(!TodoJson.encode(TodoFile(2, 2, listOf(item(1)))).contains("comments"))
+    }
+
+    @Test
+    fun `comments keep unknown fields and reject what is not a comment`() {
+        val text = """{"items":[{"id":"T-1","title":"x","comments":[{"text":"hm","edited":true}]}]}"""
+        val file = TodoJson.decode(text)
+        val comment = file.items.single().comments.single()
+        assertEquals(Author.USER, comment.author)
+        assertEquals("hm", comment.text)
+        assertEquals("", comment.time)
+        assertTrue(TodoJson.encode(file).contains("\"edited\": true"))
+        for (bad in listOf("""[3]""", """[{"author":"robot","text":"x"}]""")) {
+            val e = assertThrows(TodoFormatException::class.java) {
+                TodoJson.decode("""{"items":[{"id":"T-1","title":"x","comments":$bad}]}""")
+            }
+            assertTrue(e.message!!.contains("comment"))
+        }
     }
 }

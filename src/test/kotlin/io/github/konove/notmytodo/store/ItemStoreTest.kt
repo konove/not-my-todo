@@ -177,4 +177,30 @@ class ItemStoreTest {
         assertEquals("T-1", s.create(Draft("a")).id)
         assertEquals(1, later)
     }
+
+    @Test
+    fun `comment appends a timed note and leaves the other fields alone`() {
+        val s = store()
+        s.create(Draft("a", details = "keep"))
+        now = Instant.parse("2026-10-05T11:00:00Z")
+        s.comment("T-1", Author.AGENT, "  first\n")
+        now = Instant.parse("2026-10-05T12:00:00Z")
+        val saved = s.comment("T-1", Author.USER, "second")
+        assertEquals(listOf("first", "second"), saved.comments.map { it.text })
+        assertEquals(listOf(Author.AGENT, Author.USER), saved.comments.map { it.author })
+        assertEquals("2026-10-05T11:00:00Z", saved.comments[0].time)
+        assertEquals("2026-10-05T12:00:00Z", saved.updated)
+        assertEquals("keep", saved.details)
+        assertEquals(saved, store().find("T-1"))
+        assertEquals(2, s.update("T-1") { it.copy(title = "b") }.comments.size)
+    }
+
+    @Test
+    fun `comment rejects empty text and an unknown id`() {
+        val s = store()
+        s.create(Draft("a"))
+        assertThrows(StoreException::class.java) { s.comment("T-1", Author.AGENT, " \n") }
+        assertThrows(StoreException::class.java) { s.comment("T-9", Author.AGENT, "x") }
+        assertEquals(emptyList<Any>(), s.find("T-1")!!.comments)
+    }
 }

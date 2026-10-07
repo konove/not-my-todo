@@ -55,6 +55,7 @@ With the IDE's MCP server enabled, these tools are available:
 | `todo_get` | One item with its current line range and code |
 | `todo_create` | Add an item, optionally attached to `path` and lines |
 | `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code |
+| `todo_comment` | Add a note to an item's comments without touching its other fields |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of
 the plugin's last write.

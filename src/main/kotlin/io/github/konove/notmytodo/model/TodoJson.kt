@@ -20,8 +20,9 @@ object TodoJson {
 
     private val fileKeys = setOf("version", "nextId", "items")
     private val itemKeys = setOf(
-        "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "anchor",
+        "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor",
     )
+    private val commentKeys = setOf("author", "time", "text")
     private val anchorKeys = setOf("path", "startLine", "endLine", "text", "before", "after", "lost")
 
     private val gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().serializeNulls().create()
@@ -50,6 +51,18 @@ object TodoJson {
         o.addProperty("author", item.author.json)
         o.addProperty("created", item.created)
         o.addProperty("updated", item.updated)
+        if (item.comments.isNotEmpty()) {
+            val comments = JsonArray()
+            item.comments.forEach { c ->
+                val co = JsonObject()
+                co.addProperty("author", c.author.json)
+                co.addProperty("time", c.time)
+                co.addProperty("text", c.text)
+                co.addUnknown(c.unknown)
+                comments.add(co)
+            }
+            o.add("comments", comments)
+        }
         item.anchor?.let { a ->
             val ao = JsonObject()
             ao.addProperty("path", a.path)
@@ -102,13 +115,23 @@ object TodoJson {
         val author = o.str("author")?.let {
             Author.fromJson(it) ?: throw TodoFormatException("item $id has a bad author \"$it\"")
         } ?: Author.USER
+        val comments = o.get("comments")?.takeIf { it.isJsonArray }?.asJsonArray?.map { decodeComment(it, id) }.orEmpty()
         val anchor = o.get("anchor")?.takeIf { it.isJsonObject }?.asJsonObject?.let { decodeAnchor(it, id) }
         return TodoItem(
             id = id, title = title, details = o.str("details").orEmpty(), priority = priority,
             tags = Tags.normalizeAll(o.strList("tags")), status = status, author = author,
-            created = o.str("created").orEmpty(), updated = o.str("updated").orEmpty(), anchor = anchor,
-            unknown = o.unknown(itemKeys),
+            created = o.str("created").orEmpty(), updated = o.str("updated").orEmpty(), comments = comments,
+            anchor = anchor, unknown = o.unknown(itemKeys),
         )
+    }
+
+    private fun decodeComment(element: JsonElement, id: String): Comment {
+        if (!element.isJsonObject) throw TodoFormatException("item $id has a comment that is not an object")
+        val o = element.asJsonObject
+        val author = o.str("author")?.let {
+            Author.fromJson(it) ?: throw TodoFormatException("item $id has a comment with a bad author \"$it\"")
+        } ?: Author.USER
+        return Comment(author, o.str("time").orEmpty(), o.str("text").orEmpty(), o.unknown(commentKeys))
     }
 
     private fun decodeAnchor(o: JsonObject, id: String): Anchor {
