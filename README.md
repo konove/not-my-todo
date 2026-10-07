@@ -69,6 +69,7 @@ With the IDE's MCP server enabled, these tools are available:
 | `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, and with the `source` commit or run it came from |
 | `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
+| `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of
 the plugin's last write.

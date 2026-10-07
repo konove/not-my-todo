@@ -344,4 +344,77 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertNull(item.fixedIn)
         assertNull(item.resolution)
     }
+
+    fun `test batch files ten items in one write`() {
+        val psi = myFixture.configureByText("batch.txt", text)
+        val path = service.relativePath(psi.virtualFile)!!
+        var writes = 0
+        val listener = { writes++; Unit }
+        store.addListener(listener)
+        val entries = (1..10).joinToString(",", "[", "]") {
+            if (it == 1) """{"title": "item 1", "priority": "p1", "tags": ["perf", "#Bug"], "path": "$path", "startLine": 2, "endLine": 3}"""
+            else """{"title": "item $it", "details": "why", "tags": "batch"}"""
+        }
+        val rows = JsonParser.parseString(tools.batch(entries)).asJsonArray
+        store.removeListener(listener)
+        assertEquals(1, writes)
+        assertEquals((1..10).map { "T-$it" }, rows.map { it.asJsonObject.get("id").asString })
+        assertEquals((1..10).map { "T-$it" }, store.items.map { it.id })
+        val first = store.find("T-1")!!
+        assertEquals(Author.AGENT, first.author)
+        assertEquals(listOf("perf", "bug"), first.tags)
+        assertEquals("two\nthree", first.anchor!!.text)
+        assertEquals("why", store.find("T-10")!!.details)
+        assertEquals("T-11", JsonParser.parseString(tools.create("next", null, null, null, null, null, null)).asJsonObject.get("id").asString)
+    }
+
+    fun `test batch re-tags twenty items in one write`() {
+        repeat(20) { store.create(Draft("item $it", tags = listOf("old"))) }
+        var writes = 0
+        val listener = { writes++; Unit }
+        store.addListener(listener)
+        tools.batch((1..20).joinToString(",", "[", "]") { """{"id": "T-$it", "tags": "new mcp"}""" })
+        store.removeListener(listener)
+        assertEquals(1, writes)
+        assertTrue(store.items.all { it.tags == listOf("new", "mcp") })
+        assertEquals("item 0", store.find("T-1")!!.title)
+    }
+
+    fun `test batch creates and updates together, each as its own tool would`() {
+        store.create(Draft("a", tags = listOf("keep")))
+        store.create(Draft("b", duplicateOf = "T-1"))
+        tools.batch(
+            """[{"id": "t-1", "status": "fixed", "resolution": "did it", "fixedIn": "abc123"},
+                {"id": "T-2", "duplicateOf": "", "blockedBy": "T-1"},
+                {"title": "part", "parent": "T-1", "source": "run 7"}]"""
+        )
+        val a = store.find("T-1")!!
+        assertEquals(Status.FIXED, a.status)
+        assertEquals("did it", a.resolution)
+        assertEquals("abc123", a.fixedIn)
+        assertEquals(listOf("keep"), a.tags)
+        val b = store.find("T-2")!!
+        assertNull(b.duplicateOf)
+        assertEquals(listOf("T-1"), b.blockedBy)
+        val part = store.find("T-3")!!
+        assertEquals("T-1", part.parent)
+        assertEquals("run 7", part.source)
+    }
+
+    fun `test batch with a bad entry names it and changes nothing`() {
+        store.create(Draft("a"))
+        val before = Files.readString(store.file)
+        failsWith("entry 2") { tools.batch("""[{"title": "fine"}, {"id": "T-1", "priority": "urgent"}]""") }
+        failsWith("entry 3") { tools.batch("""[{"title": "fine"}, {"id": "T-1", "title": "new"}, {"id": "T-9", "tags": "x"}]""") }
+        failsWith("entry 2") { tools.batch("""[{"title": "fine"}, {"title": "part", "parent": "T-9"}]""") }
+        failsWith("entry 1") { tools.batch("""[{"details": "no title"}]""") }
+        failsWith("titel") { tools.batch("""[{"titel": "typo"}]""") }
+        failsWith("status") { tools.batch("""[{"title": "new", "status": "fixed"}]""") }
+        failsWith("todo_update") { tools.batch("""[{"id": "T-1", "places": "a.txt"}]""") }
+        failsWith("entry 1") { tools.batch("""[{"title": 5}]""") }
+        failsWith("JSON array") { tools.batch("""{"title": "not in an array"}""") }
+        failsWith("JSON array") { tools.batch("not json") }
+        failsWith("empty") { tools.batch("[]") }
+        assertEquals(before, Files.readString(store.file))
+    }
 }

@@ -1,7 +1,10 @@
 package io.github.konove.notmytodo.mcp
 
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonParseException
+import com.google.gson.JsonParser
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.service
@@ -19,6 +22,7 @@ import io.github.konove.notmytodo.model.Tags
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.model.TodoJson
 import io.github.konove.notmytodo.store.Draft
+import io.github.konove.notmytodo.store.ItemStore
 import io.github.konove.notmytodo.store.StoreException
 
 class TodoToolError(message: String) : Exception(message)
@@ -54,9 +58,7 @@ class TodoTools(private val project: Project) {
                 needles.all { item.title.contains(it, ignoreCase = true) || item.details.contains(it, ignoreCase = true) }
         }
         // One item per line: pretty printing would triple the size of a list that is meant to be read whole.
-        if (compact) {
-            return if (found.isEmpty()) "[]" else found.joinToString(",\n", "[\n", "\n]") { compactRow(it, links).toString() }
-        }
+        if (compact) return rows(found.map { compactRow(it, links) })
         val array = JsonArray()
         found.forEach { array.add(summary(it, links)) }
         return TodoJson.toText(array)
@@ -91,6 +93,16 @@ class TodoTools(private val project: Project) {
         path: String?, startLine: Int?, endLine: Int?, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null, source: String? = null,
     ): String {
+        return TodoJson.toText(TodoJson.encodeItem(storeCall {
+            store.create(draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source))
+        }))
+    }
+
+    private fun draft(
+        title: String, details: String?, priority: String?, tags: String?,
+        path: String?, startLine: Int?, endLine: Int?, places: String?,
+        blockedBy: String?, duplicateOf: String?, parent: String?, source: String?,
+    ): Draft {
         if (title.isBlank()) throw TodoToolError("title must not be empty")
         val parsedPriority = priority?.let(::parsePriority) ?: Priority.P2
         if (path == null && (startLine != null || endLine != null)) {
@@ -98,12 +110,11 @@ class TodoTools(private val project: Project) {
         }
         val first = path?.let { buildAnchor(Place(filePath(it), startLine, endLine)) }
         val anchors = (listOfNotNull(first) + parsePlaces(places).map(::buildAnchor)).distinctBy(Anchor::place)
-        val draft = Draft(
+        return Draft(
             title, details.orEmpty(), parsedPriority, Tags.parseList(tags.orEmpty()), Author.AGENT, anchors,
             parseIds(blockedBy.orEmpty()), duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
             parent?.takeIf { it.isNotBlank() }?.let(::parseId), source,
         )
-        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.create(draft) }))
     }
 
     fun update(
@@ -112,13 +123,7 @@ class TodoTools(private val project: Project) {
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
         source: String? = null, fixedIn: String? = null, resolution: String? = null,
     ): String {
-        // An empty text takes the link away; a text left out leaves it as it is.
-        val blockers = blockedBy?.let(::parseIds)
-        val original = duplicateOf?.let { if (it.isBlank()) null else parseId(it) }
-        val partOf = parent?.let { if (it.isBlank()) null else parseId(it) }
-        val parsedPriority = priority?.let(::parsePriority)
-        val parsedStatus = status?.let(::parseStatus)
-        val parsedTags = tags?.let(Tags::parseList)
+        val edit = edit(title, details, priority, tags, status, blockedBy, duplicateOf, parent, source, fixedIn, resolution)
         val moves = path != null || startLine != null || endLine != null
         if (moves && places != null) throw TodoToolError("pass either places or path, startLine and endLine, not both")
         if (places != null) {
@@ -144,25 +149,107 @@ class TodoTools(private val project: Project) {
             val anchor = buildAnchor(Place(anchorPath, startLine, endLine))
             onTracker { it.attach(id, anchor, index) }
         }
+        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.update(id, change = edit) }))
+    }
+
+    /** The change that the fields passed to an update make to an item. Fields left out stay as they are. */
+    private fun edit(
+        title: String?, details: String?, priority: String?, tags: String?, status: String?,
+        blockedBy: String?, duplicateOf: String?, parent: String?,
+        source: String?, fixedIn: String?, resolution: String?,
+    ): (TodoItem) -> TodoItem {
+        // An empty text takes the link away; a text left out leaves it as it is.
+        val blockers = blockedBy?.let(::parseIds)
+        val original = duplicateOf?.let { if (it.isBlank()) null else parseId(it) }
+        val partOf = parent?.let { if (it.isBlank()) null else parseId(it) }
+        val parsedPriority = priority?.let(::parsePriority)
+        val parsedStatus = status?.let(::parseStatus)
+        val parsedTags = tags?.let(Tags::parseList)
+        return {
+            it.copy(
+                title = title ?: it.title,
+                details = details ?: it.details,
+                priority = parsedPriority ?: it.priority,
+                tags = parsedTags ?: it.tags,
+                status = parsedStatus ?: it.status,
+                blockedBy = blockers ?: it.blockedBy,
+                duplicateOf = if (duplicateOf != null) original else it.duplicateOf,
+                parent = if (parent != null) partOf else it.parent,
+                // The store reads an empty text as none.
+                source = source ?: it.source,
+                fixedIn = fixedIn ?: it.fixedIn,
+                resolution = resolution ?: it.resolution,
+            )
+        }
+    }
+
+    /**
+     * Creates and updates several items as one change. [items] is a JSON array of objects: one with
+     * an id changes that item, one without is a new item. Nothing is saved when an entry is wrong.
+     */
+    fun batch(items: String): String {
+        val entries = try {
+            JsonParser.parseString(items).takeIf { it.isJsonArray }?.asJsonArray
+        } catch (_: JsonParseException) {
+            null
+        } ?: throw TodoToolError("items must be a JSON array of objects, for example [{\"title\": \"...\"}, {\"id\": \"T-3\", \"tags\": \"...\"}]")
+        if (entries.isEmpty) throw TodoToolError("items is empty: pass at least one object")
+        // Every entry is read before the first is saved, and the files of new items with it.
+        val changes = entries.mapIndexed { index, entry -> inEntry(index) { change(entry) } }
         val saved = storeCall {
-            store.update(id) {
-                it.copy(
-                    title = title ?: it.title,
-                    details = details ?: it.details,
-                    priority = parsedPriority ?: it.priority,
-                    tags = parsedTags ?: it.tags,
-                    status = parsedStatus ?: it.status,
-                    blockedBy = blockers ?: it.blockedBy,
-                    duplicateOf = if (duplicateOf != null) original else it.duplicateOf,
-                    parent = if (parent != null) partOf else it.parent,
-                    // The store reads an empty text as none.
-                    source = source ?: it.source,
-                    fixedIn = fixedIn ?: it.fixedIn,
-                    resolution = resolution ?: it.resolution,
-                )
+            store.batch { batch -> changes.mapIndexed { index, change -> inEntry(index) { storeCall { change(batch) } } } }
+        }
+        val links = Links(readable())
+        return rows(saved.map { compactRow(it, links) })
+    }
+
+    private fun <T> inEntry(index: Int, block: () -> T): T = try {
+        block()
+    } catch (e: TodoToolError) {
+        throw TodoToolError("entry ${index + 1}: ${e.message}")
+    }
+
+    private fun change(entry: JsonElement): (ItemStore.Batch) -> TodoItem {
+        if (!entry.isJsonObject) throw TodoToolError("must be a JSON object")
+        val o = entry.asJsonObject
+        val updates = o.has("id")
+        val known = if (updates) UPDATE_FIELDS else CREATE_FIELDS
+        o.keySet().firstOrNull { it !in known }?.let { field ->
+            throw TodoToolError(
+                when {
+                    updates && field in PLACE_FIELDS -> "$field cannot be changed in a batch: re-attach the item with todo_update"
+                    !updates && field in UPDATE_FIELDS -> "$field cannot be set on a new item: leave it out, or give an id to change an item"
+                    else -> "unknown field $field: ${if (updates) "an item to change" else "a new item"} takes ${known.joinToString(", ")}"
+                }
+            )
+        }
+        fun text(field: String): String? = o.get(field)?.takeUnless { it.isJsonNull }?.let { value ->
+            when {
+                value.isJsonPrimitive && value.asJsonPrimitive.isString -> value.asString
+                // Lists are written as an array as readily as a text.
+                value.isJsonArray && field in LIST_FIELDS && value.asJsonArray.all { it.isJsonPrimitive } ->
+                    value.asJsonArray.joinToString(",") { it.asString }
+                else -> throw TodoToolError("$field must be a text")
             }
         }
-        return TodoJson.toText(TodoJson.encodeItem(saved))
+        fun line(field: String): Int? = o.get(field)?.takeUnless { it.isJsonNull }?.let { value ->
+            value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asString?.toIntOrNull()
+                ?: throw TodoToolError("$field must be a whole number")
+        }
+        if (updates) {
+            val id = parseId(text("id") ?: throw TodoToolError("id must be a text"))
+            val edit = edit(
+                text("title"), text("details"), text("priority"), text("tags"), text("status"), text("blockedBy"),
+                text("duplicateOf"), text("parent"), text("source"), text("fixedIn"), text("resolution"),
+            )
+            return { it.update(id, edit) }
+        }
+        val draft = draft(
+            text("title") ?: throw TodoToolError("title is required for a new item"), text("details"), text("priority"),
+            text("tags"), text("path"), line("startLine"), line("endLine"), text("places"),
+            text("blockedBy"), text("duplicateOf"), text("parent"), text("source"),
+        )
+        return { it.create(draft) }
     }
 
     fun comment(id: String, text: String): String {
@@ -240,6 +327,9 @@ class TodoTools(private val project: Project) {
         return json
     }
 
+    private fun rows(rows: List<JsonObject>): String =
+        if (rows.isEmpty()) "[]" else rows.joinToString(",\n", "[\n", "\n]") { it.toString() }
+
     private fun words(value: String?): List<String> =
         value.orEmpty().split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
 
@@ -301,4 +391,13 @@ class TodoTools(private val project: Project) {
 
     private fun parseStatus(value: String): Status =
         Status.fromJson(value) ?: throw TodoToolError("status must be one of open, in_progress, fixed, done, wont_fix")
+
+    private companion object {
+        val PLACE_FIELDS = setOf("path", "startLine", "endLine", "places")
+        val LIST_FIELDS = setOf("tags", "blockedBy", "places")
+        val CREATE_FIELDS = setOf("title", "details", "priority", "tags") + PLACE_FIELDS + setOf("blockedBy", "duplicateOf", "parent", "source")
+        val UPDATE_FIELDS = setOf(
+            "id", "title", "details", "priority", "tags", "status", "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
+        )
+    }
 }

@@ -274,4 +274,40 @@ class ItemStoreTest {
         assertNull(s.update("T-1") { it.copy(fixedIn = "", resolution = " ") }.resolution)
         assertNull(store().find("T-1")!!.fixedIn)
     }
+
+    @Test
+    fun `a batch of changes is written as one`() {
+        val s = store()
+        s.create(Draft("a"))
+        var fired = 0
+        s.addListener { fired++ }
+        val saved = s.batch { b ->
+            listOf(b.create(Draft("b")), b.create(Draft("c", parent = "T-2")), b.update("T-1") { it.copy(tags = listOf("x")) })
+        }
+        assertEquals(listOf("T-2", "T-3", "T-1"), saved.map { it.id })
+        assertEquals(1, fired)
+        val read = store()
+        assertEquals(listOf("T-1", "T-2", "T-3"), read.items.map { it.id })
+        assertEquals(listOf("x"), read.find("T-1")!!.tags)
+        assertEquals("T-4", read.create(Draft("d")).id)
+    }
+
+    @Test
+    fun `a batch with a change that fails changes nothing`() {
+        val s = store()
+        s.create(Draft("a"))
+        val before = Files.readString(file)
+        var fired = 0
+        s.addListener { fired++ }
+        assertThrows(StoreException::class.java) {
+            s.batch { b ->
+                b.create(Draft("b"))
+                b.update("T-1") { it.copy(title = "changed") }
+                b.update("T-9") { it }
+            }
+        }
+        assertEquals(before, Files.readString(file))
+        assertEquals(0, fired)
+        assertEquals(listOf("a"), s.items.map { it.title })
+    }
 }

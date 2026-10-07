@@ -110,6 +110,23 @@ class TodoToolset : McpToolset {
         @McpDescription("The comment, as Markdown") text: String,
     ): String = call { it.comment(id, text) }
 
+    @McpTool
+    @McpDescription(
+        "Create or change several TODO items in one call, saved as one write: use it to file a list of findings or to " +
+            "re-tag, re-prioritise or close many items, instead of calling todo_create or todo_update for each or editing " +
+            "the items file. items is a JSON array of objects. An object with an id changes that item and takes the " +
+            "fields of todo_update except path, startLine, endLine and places; an object without an id is a new item " +
+            "and takes the fields of todo_create. The entries are applied in order, and when one is wrong none is saved " +
+            "and the error names it. Returns one line per entry with the id, title, priority, status and tags of the item as saved."
+    )
+    suspend fun todo_batch(
+        @McpDescription(
+            "JSON array of objects, for example [{\"title\": \"Cache the index\", \"priority\": \"p3\", \"tags\": \"perf\", " +
+                "\"path\": \"src/Index.kt\", \"startLine\": 12}, {\"id\": \"T-3\", \"tags\": \"perf mcp\"}, " +
+                "{\"id\": \"T-4\", \"status\": \"wont_fix\", \"resolution\": \"...\"}]"
+        ) items: String,
+    ): String = call { it.batch(items) }
+
     private suspend fun call(block: (TodoTools) -> String): String {
         val project = currentCoroutineContext().project
         return try {

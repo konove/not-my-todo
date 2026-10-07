@@ -97,7 +97,27 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         fire()
     }
 
-    fun create(draft: Draft): TodoItem = mutate { f ->
+    fun create(draft: Draft): TodoItem = mutate { created(it, draft) }
+
+    fun update(id: String, touch: Boolean = true, change: (TodoItem) -> TodoItem): TodoItem =
+        mutate { updated(it, id, touch, change) }
+
+    /** Makes several changes as one: they are written together or, when one of them fails, not at all. */
+    fun <T> batch(changes: (Batch) -> T): T = mutate { f ->
+        val batch = Batch(f)
+        val result = changes(batch)
+        batch.file to result
+    }
+
+    /** The changes of one [batch]. Each is made to what the ones before it left. */
+    inner class Batch internal constructor(internal var file: TodoFile) {
+        fun create(draft: Draft): TodoItem = created(file, draft).also { file = it.first }.second
+
+        fun update(id: String, change: (TodoItem) -> TodoItem): TodoItem =
+            updated(file, id, true, change).also { file = it.first }.second
+    }
+
+    private fun created(f: TodoFile, draft: Draft): Pair<TodoFile, TodoItem> {
         val title = draft.title.trim()
         if (title.isEmpty()) throw StoreException("the title must not be empty")
         val now = timestamp()
@@ -109,10 +129,10 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             source = draft.source.said(),
         )
         checkLinks(item, f.items + item)
-        f.copy(nextId = f.nextId + 1, items = f.items + item) to item
+        return f.copy(nextId = f.nextId + 1, items = f.items + item) to item
     }
 
-    fun update(id: String, touch: Boolean = true, change: (TodoItem) -> TodoItem): TodoItem = mutate { f ->
+    private fun updated(f: TodoFile, id: String, touch: Boolean, change: (TodoItem) -> TodoItem): Pair<TodoFile, TodoItem> {
         val old = f.items.firstOrNull { it.id == id } ?: throw StoreException("there is no item with id $id")
         val changed = change(old)
         val edited = changed.copy(
@@ -128,13 +148,13 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             },
         )
         if (edited.title.isEmpty()) throw StoreException("the title must not be empty")
-        if (edited == old) return@mutate f to old
+        if (edited == old) return f to old
         // Links that were already there are left alone, so a file with a bad one can still be edited.
         if (edited.blockedBy != old.blockedBy || edited.duplicateOf != old.duplicateOf || edited.parent != old.parent) {
             checkLinks(edited, f.items.map { if (it.id == id) edited else it })
         }
         val saved = if (touch) edited.copy(updated = timestamp()) else edited
-        f.copy(items = f.items.map { if (it.id == id) saved else it }) to saved
+        return f.copy(items = f.items.map { if (it.id == id) saved else it }) to saved
     }
 
     /**
