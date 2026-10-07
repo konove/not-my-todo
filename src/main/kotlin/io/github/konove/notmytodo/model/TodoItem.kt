@@ -35,7 +35,8 @@ enum class Author {
 }
 
 /**
- * A place in a file. Lines are 1-based and inclusive; [path] is project-relative with forward slashes.
+ * A place in a file, or the whole file. Lines are 1-based and inclusive; [path] is project-relative
+ * with forward slashes. An anchor on the whole file has no lines: both are [WHOLE_FILE] and [text] is empty.
  * [unknown] holds the JSON fields this version does not know, so that they are written back as they came.
  */
 data class Anchor(
@@ -47,7 +48,25 @@ data class Anchor(
     val after: List<String>,
     val lost: Boolean = false,
     val unknown: Map<String, JsonElement> = emptyMap(),
-)
+) {
+    val isFile: Boolean get() = startLine == WHOLE_FILE
+
+    /** The lines as they are shown: `12`, `12-15`, or nothing for a whole file. */
+    fun linesText(dash: String = "-"): String = when {
+        isFile -> ""
+        startLine == endLine -> "$startLine"
+        else -> "$startLine$dash$endLine"
+    }
+
+    /** The path with the lines after a colon: `src/A.kt:12-15`, or the bare path for a whole file. */
+    val place: String get() = if (isFile) path else "$path:${linesText()}"
+
+    companion object {
+        const val WHOLE_FILE = 0
+
+        fun file(path: String): Anchor = Anchor(path, WHOLE_FILE, WHOLE_FILE, "", emptyList(), emptyList())
+    }
+}
 
 /** A note added to an item after it was made. [time] is written like [TodoItem.updated]. */
 data class Comment(
@@ -69,10 +88,14 @@ data class TodoItem(
     val updated: String = "",
     /** Oldest first. Only ever added to, so that a note never replaces what someone else wrote. */
     val comments: List<Comment> = emptyList(),
-    val anchor: Anchor? = null,
+    /** Every place the item is attached to; none for a plain note. */
+    val anchors: List<Anchor> = emptyList(),
     /** The JSON fields this version does not know, written back as they came. */
     val unknown: Map<String, JsonElement> = emptyMap(),
 ) {
+    /** The first anchor: where the item is listed, sorted and grouped. */
+    val anchor: Anchor? get() = anchors.firstOrNull()
+    val anyLost: Boolean get() = anchors.any { it.lost }
     val number: Int get() = ItemId.number(id)
     val isClosed: Boolean get() = status == Status.DONE || status == Status.WONT_FIX
 

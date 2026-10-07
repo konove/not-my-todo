@@ -11,7 +11,7 @@ class HandoffDialogTest : BasePlatformTestCase() {
     private val item = TodoItem(id = "T-3", title = "do the thing")
 
     private fun target(wanted: FixTarget, a: Availability): FixTarget {
-        val dialog = HandoffDialog(project, item, null, a, wanted)
+        val dialog = HandoffDialog(project, item, emptyMap(), a, wanted)
         try {
             return dialog.target
         } finally {
@@ -36,7 +36,7 @@ class HandoffDialogTest : BasePlatformTestCase() {
     fun `test the button names what the chosen target does`() {
         val a = Availability(channelOn = false, sessionConnected = false, terminal = true)
         for ((wanted, text) in listOf(FixTarget.TERMINAL to "Open in Terminal", FixTarget.CLIPBOARD to "Copy Prompt")) {
-            val dialog = HandoffDialog(project, item, null, a, wanted)
+            val dialog = HandoffDialog(project, item, emptyMap(), a, wanted)
             try {
                 assertEquals(text, dialog.sendText)
             } finally {
@@ -47,7 +47,7 @@ class HandoffDialogTest : BasePlatformTestCase() {
 
     fun `test a phrase goes into the done-when text and the prompt, and comes out again`() {
         val a = Availability(channelOn = false, sessionConnected = false, terminal = true)
-        val dialog = HandoffDialog(project, item, null, a, FixTarget.TERMINAL)
+        val dialog = HandoffDialog(project, item, emptyMap(), a, FixTarget.TERMINAL)
         try {
             assertEquals(TodoSettings.Values().donePhraseList(), dialog.phrases.keys.toList())
             dialog.toggle("the tests pass")
@@ -67,7 +67,7 @@ class HandoffDialogTest : BasePlatformTestCase() {
 
     fun `test the prompt follows the options`() {
         val a = Availability(channelOn = false, sessionConnected = false, terminal = true)
-        val dialog = HandoffDialog(project, item, null, a, FixTarget.TERMINAL, PromptOptions(extra = "Be brief."))
+        val dialog = HandoffDialog(project, item, emptyMap(), a, FixTarget.TERMINAL, PromptOptions(extra = "Be brief."))
         try {
             assertTrue(dialog.prompt.startsWith("Fix TODO item T-3"))
             assertTrue(dialog.prompt.contains("Be brief."))

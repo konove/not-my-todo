@@ -20,10 +20,10 @@ class EditorDecoratorTest : BasePlatformTestCase() {
         store.reload()
         val psi = myFixture.configureByText("a.txt", text)
         val path = service.relativePath(psi.virtualFile)!!
-        val open = store.create(Draft("open", anchor = AnchorResolver.capture(path, text, 1, 1)))
-        val closed = store.create(Draft("closed", anchor = AnchorResolver.capture(path, text, 2, 2)))
+        val open = store.create(Draft("open", anchors = listOf(AnchorResolver.capture(path, text, 1, 1))))
+        val closed = store.create(Draft("closed", anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
         store.update(closed.id) { it.copy(status = Status.DONE) }
-        store.create(Draft("lost", anchor = AnchorResolver.capture(path, text, 3, 3).copy(lost = true)))
+        store.create(Draft("lost", anchors = listOf(AnchorResolver.capture(path, text, 3, 3).copy(lost = true))))
         store.create(Draft("note"))
 
         val decorator = project.service<EditorDecorator>()
@@ -48,7 +48,7 @@ class EditorDecoratorTest : BasePlatformTestCase() {
         store.reload()
         val psi = myFixture.configureByText("a.txt", text)
         val path = service.relativePath(psi.virtualFile)!!
-        val open = store.create(Draft("open", anchor = AnchorResolver.capture(path, text, 1, 1)))
+        val open = store.create(Draft("open", anchors = listOf(AnchorResolver.capture(path, text, 1, 1))))
         val decorator = project.service<EditorDecorator>()
         decorator.start()
         decorator.refresh()
@@ -61,5 +61,22 @@ class EditorDecoratorTest : BasePlatformTestCase() {
         TodoSettings.getInstance().update(TodoSettings.Values(editorMarks = true))
         PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
         assertEquals(listOf(open.id), decorator.decoratedIds(myFixture.editor.document))
+    }
+
+    fun `test every anchored range of an item gets a mark and a whole file gets none`() {
+        val service = TodoService.getInstance(project)
+        val store = service.store
+        Files.deleteIfExists(store.file)
+        store.reload()
+        val psi = myFixture.configureByText("a.txt", text)
+        val path = service.relativePath(psi.virtualFile)!!
+        val two = store.create(Draft("two", anchors = listOf(
+            AnchorResolver.capture(path, text, 1, 1), io.github.konove.notmytodo.model.Anchor.file(path), AnchorResolver.capture(path, text, 3, 3),
+        )))
+        store.create(Draft("whole", anchors = listOf(io.github.konove.notmytodo.model.Anchor.file(path))))
+        val decorator = project.service<EditorDecorator>()
+        decorator.start()
+        decorator.refresh()
+        assertEquals(listOf(two.id, two.id), decorator.decoratedIds(myFixture.editor.document))
     }
 }

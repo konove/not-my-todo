@@ -86,7 +86,7 @@ class CaptureDialog(
                     details = detailsArea.text.trim(),
                     priority = captured.priority ?: defaultPriority,
                     tags = captured.tags,
-                    anchor = anchor,
+                    anchors = listOfNotNull(anchor),
                 )
             )
         } catch (e: StoreException) {
@@ -105,8 +105,7 @@ class CaptureDialog(
 
         fun anchorText(anchor: Anchor): String {
             val name = anchor.path.substringAfterLast('/')
-            return if (anchor.startLine == anchor.endLine) "$name:${anchor.startLine}"
-            else "$name:${anchor.startLine}–${anchor.endLine}"
+            return if (anchor.isFile) name else "$name:${anchor.linesText("–")}"
         }
     }
 }

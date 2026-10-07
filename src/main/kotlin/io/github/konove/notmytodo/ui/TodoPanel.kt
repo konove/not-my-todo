@@ -317,8 +317,8 @@ class TodoPanel(
 
     /** Whether [item]'s file is in the scope picked in the toolbar. Notes and files that are gone always are. */
     private fun inFileScope(item: TodoItem): Boolean {
-        val file = item.anchor?.let { service.findFile(it.path) } ?: return true
-        return CodeTodos.inScope(fileScope.selectedScope, file)
+        val files = item.anchors.mapNotNull { service.findFile(it.path) }
+        return files.isEmpty() || files.any { CodeTodos.inScope(fileScope.selectedScope, it) }
     }
 
     private fun addItem() {
@@ -648,8 +648,8 @@ class TodoPanel(
             val anchor = value.anchor
             when {
                 anchor == null -> place.append("Note", grey)
-                anchor.lost -> place.append("Anchor lost", SimpleTextAttributes.ERROR_ATTRIBUTES)
-                else -> place.append(placeText(anchor), grey)
+                value.anyLost -> place.append("Anchor lost", SimpleTextAttributes.ERROR_ATTRIBUTES)
+                else -> place.append(placeText(anchor, value.anchors.size - 1), grey)
             }
             if (!code) {
                 status.append(value.status.label, StatusColors.attributes(value.status))
@@ -670,10 +670,10 @@ class TodoPanel(
         /** Priority, title, tags, place, status, ID, updated. The title takes what is left. */
         val COLUMN_WIDTHS = listOf(28, 0, 140, 240, 110, 50, 130)
 
-        /** The file with its directory, and the lines: `ui/TodoPanel.kt:124–129`. */
-        fun placeText(anchor: Anchor): String {
+        /** The file with its directory, the lines, and how many [more] anchors the item has: `ui/TodoPanel.kt:124–129 +2`. */
+        fun placeText(anchor: Anchor, more: Int = 0): String {
             val file = anchor.path.split('/').takeLast(2).joinToString("/")
-            return if (anchor.startLine == anchor.endLine) "$file:${anchor.startLine}" else "$file:${anchor.startLine}–${anchor.endLine}"
+            return (if (anchor.isFile) file else "$file:${anchor.linesText("–")}") + if (more > 0) " +$more" else ""
         }
 
         fun updatedText(timestamp: String): String =

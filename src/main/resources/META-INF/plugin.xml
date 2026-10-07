@@ -13,7 +13,8 @@
                 to its code.</li>
             <li><b>Anchors:</b> items follow their code as you edit, switch branches, or let an agent
                 change files. If the code can no longer be found the item shows "Anchor lost", and you
-                can re-attach it to a selection.</li>
+                can re-attach it to a selection. An item can be attached to several places, and to
+                a whole file as well as to lines.</li>
             <li><b>Fix with Claude:</b> sends an item, with its code and the lines around it, to
                 Claude Code in a terminal tab or to the clipboard.</li>
             <li><b>MCP tools:</b> with the IDE's MCP server enabled, agents can use

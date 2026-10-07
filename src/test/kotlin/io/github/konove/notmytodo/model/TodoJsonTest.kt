@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.model
 
 import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -11,7 +12,7 @@ class TodoJsonTest {
     private fun item(n: Int, anchor: Anchor? = null) = TodoItem(
         id = ItemId.of(n), title = "title $n", details = "d", priority = Priority.P1,
         tags = listOf("perf"), status = Status.IN_PROGRESS, author = Author.AGENT,
-        created = "2026-10-05T14:02:11Z", updated = "2026-10-05T15:00:00Z", anchor = anchor,
+        created = "2026-10-05T14:02:11Z", updated = "2026-10-05T15:00:00Z", anchors = listOfNotNull(anchor),
     )
 
     @Test
@@ -103,7 +104,7 @@ class TodoJsonTest {
         assertEquals("x", written.get("schema").asString)
         assertEquals("hm", item.getAsJsonArray("votes").single().asJsonObject.get("text").asString)
         assertTrue(item.get("decision").isJsonNull)
-        assertEquals(4, item.getAsJsonObject("anchor").get("column").asInt)
+        assertEquals(4, item.getAsJsonArray("anchors")[0].asJsonObject.get("column").asInt)
         assertEquals(file, TodoJson.decode(TodoJson.encode(file)))
     }
 
@@ -159,5 +160,31 @@ class TodoJsonTest {
             }
             assertTrue(e.message!!.contains("comment"))
         }
+    }
+
+    @Test
+    fun `several anchors round trip, and one on a whole file is written without lines`() {
+        val lines = Anchor("src/a.cpp", 3, 4, "x\ny", listOf("b"), listOf("a1"))
+        val whole = Anchor.file("src/b.cpp").copy(lost = true)
+        val file = TodoFile(2, 2, listOf(item(1).copy(anchors = listOf(lines, whole))))
+        assertEquals(file, TodoJson.decode(TodoJson.encode(file)))
+        val written = TodoJson.encodeItem(file.items.single())
+        assertFalse(written.has("anchor"))
+        val second = written.getAsJsonArray("anchors")[1].asJsonObject
+        assertEquals(setOf("path", "lost"), second.keySet())
+        assertTrue(TodoJson.decode(TodoJson.encode(file)).items.single().anchors[1].isFile)
+    }
+
+    @Test
+    fun `the single anchor of an older file is read as the only one`() {
+        val old = """{"version":1,"items":[{"id":"T-1","title":"x","anchor":{"path":"a.c","startLine":2,"endLine":3,"text":"t"}}]}"""
+        val item = TodoJson.decode(old).items.single()
+        assertEquals(listOf("a.c:2-3"), item.anchors.map { it.place })
+        assertTrue(item.unknown.isEmpty())
+        val both = """{"items":[{"id":"T-1","title":"x","anchor":{"path":"old.c","startLine":1},
+            "anchors":[{"path":"a.c"},{"path":"b.c","startLine":5}]}]}"""
+        assertEquals(listOf("a.c", "b.c:5"), TodoJson.decode(both).items.single().anchors.map { it.place })
+        val e = assertThrows(TodoFormatException::class.java) { TodoJson.decode("""{"items":[{"id":"T-1","title":"x","anchors":[3]}]}""") }
+        assertTrue(e.message, e.message!!.contains("anchor"))
     }
 }

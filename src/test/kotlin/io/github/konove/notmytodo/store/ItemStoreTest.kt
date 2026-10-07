@@ -53,7 +53,7 @@ class ItemStoreTest {
         assertEquals("2026-10-05T11:00:00Z", s.update("T-1") { it.copy(status = Status.DONE) }.updated)
         now = Instant.parse("2026-10-05T12:00:00Z")
         val anchor = Anchor("a.txt", 1, 1, "x", emptyList(), emptyList())
-        assertEquals("2026-10-05T11:00:00Z", s.update("T-1", touch = false) { it.copy(anchor = anchor) }.updated)
+        assertEquals("2026-10-05T11:00:00Z", s.update("T-1", touch = false) { it.copy(anchors = listOf(anchor)) }.updated)
     }
 
     @Test
@@ -78,7 +78,7 @@ class ItemStoreTest {
         )
         val s = store()
         val anchor = Anchor("b.txt", 2, 2, "y", emptyList(), emptyList())
-        s.update("T-1") { TodoItem(it.id, "renamed", anchor = anchor) }
+        s.update("T-1") { TodoItem(it.id, "renamed", anchors = listOf(anchor)) }
         s.create(Draft("c"))
         s.delete("T-2")
         val root = JsonParser.parseString(Files.readString(file)).asJsonObject
@@ -87,8 +87,8 @@ class ItemStoreTest {
         val first = root.getAsJsonArray("items").first().asJsonObject
         assertEquals("renamed", first.get("title").asString)
         assertEquals("T-2", first.getAsJsonArray("links").single().asString)
-        assertEquals("b.txt", first.getAsJsonObject("anchor").get("path").asString)
-        assertEquals(4, first.getAsJsonObject("anchor").get("column").asInt)
+        assertEquals("b.txt", first.getAsJsonArray("anchors")[0].asJsonObject.get("path").asString)
+        assertEquals(4, first.getAsJsonArray("anchors")[0].asJsonObject.get("column").asInt)
     }
 
     @Test

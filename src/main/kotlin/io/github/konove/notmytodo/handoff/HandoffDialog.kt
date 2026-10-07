@@ -36,7 +36,7 @@ import javax.swing.event.DocumentEvent
 class HandoffDialog(
     private val project: Project,
     private val item: TodoItem,
-    private val fileText: String?,
+    private val files: Map<String, String>,
     private val availability: TargetChoice.Availability,
     wanted: FixTarget,
     private val options: PromptOptions = PromptOptions(),
@@ -66,7 +66,7 @@ class HandoffDialog(
         toolTipText = "Switch the dialog back on in Settings | Tools | Not My TODO."
     }
 
-    val prompt: String get() = PromptBuilder.build(item, fileText, doneWhen.text, options)
+    val prompt: String get() = PromptBuilder.build(item, files, doneWhen.text, options)
     val target: FixTarget get() = targets.entries.first { it.value.isSelected }.key
 
     /** True when the dialog is to be skipped from now on, and prompts sent to [target]. */

@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.handoff
 
 import io.github.konove.notmytodo.anchor.AnchorResolver
+import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Tags
 import io.github.konove.notmytodo.model.TodoItem
@@ -17,20 +18,20 @@ data class PromptOptions(
     val itemsFile: String = ".todos/items.json",
 )
 
-/** Builds the text handed to an agent for one item. */
+/** Builds the text handed to an agent for one item. The files are the text of each anchored file, by its path. */
 object PromptBuilder {
-    fun build(item: TodoItem, fileText: String?, doneWhen: String, options: PromptOptions = PromptOptions()): String =
-        one(item, fileText, doneWhen, options, options.extra)
+    fun build(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions = PromptOptions()): String =
+        one(item, files, doneWhen, options, options.extra)
 
     /** One prompt for several items, each with its own instructions. */
-    fun buildAll(items: List<Pair<TodoItem, String?>>, options: PromptOptions = PromptOptions()): String {
+    fun buildAll(items: List<TodoItem>, files: Map<String, String>, options: PromptOptions = PromptOptions()): String {
         val extra = options.extra.trim()
         return "Fix the following ${items.size} TODO items, one at a time.\n\n" +
             (if (extra.isEmpty()) "" else "$extra\n\n") +
-            items.joinToString("\n---\n\n") { (item, fileText) -> one(item, fileText, "", options, "") }
+            items.joinToString("\n---\n\n") { item -> one(item, files, "", options, "") }
     }
 
-    private fun one(item: TodoItem, fileText: String?, doneWhen: String, options: PromptOptions, extra: String): String {
+    private fun one(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions, extra: String): String {
         val out = StringBuilder()
         // A TODO comment found in the code is not in the store, so there is no item to report on or to read.
         val comment = ItemId.parse(item.id) == null
@@ -52,7 +53,7 @@ object PromptBuilder {
                 out.append("\nComments:\n")
                 item.comments.forEach { out.append("- ${it.author.json}, ${it.time}: ${it.text}\n") }
             }
-            location(out, item, fileText, options.contextLines)
+            locations(out, item, files, options.contextLines)
         }
 
         if (doneWhen.isNotBlank()) out.append("\nDone when: ${doneWhen.trim()}\n")
@@ -90,17 +91,30 @@ object PromptBuilder {
         out.append("If the user does not choose, leave the item as it is.\n")
     }
 
-    private fun location(out: StringBuilder, item: TodoItem, fileText: String?, contextLines: Int) {
-        val anchor = item.anchor ?: return
+    /** Every anchor of the item, numbered when there is more than one. */
+    private fun locations(out: StringBuilder, item: TodoItem, files: Map<String, String>, contextLines: Int) {
+        if (item.anchors.size > 1) out.append("\nThe item is attached to ${item.anchors.size} places.\n")
+        item.anchors.forEachIndexed { index, anchor ->
+            val label = if (item.anchors.size > 1) "Location ${index + 1}" else "Location"
+            location(out, label, anchor, files[anchor.path], contextLines)
+        }
+    }
+
+    private fun location(out: StringBuilder, label: String, anchor: Anchor, fileText: String?, contextLines: Int) {
+        if (anchor.isFile) {
+            out.append("\n$label: ${anchor.path}, the whole file.")
+            out.append(if (anchor.lost || fileText == null) " The file could not be found.\n" else "\n")
+            return
+        }
         if (anchor.lost || fileText == null) {
-            out.append("\nLocation: ${anchor.path}. The exact lines could not be located; ")
+            out.append("\n$label: ${anchor.path}. The exact lines could not be located; ")
             out.append("when last seen the code was:\n\n```\n${anchor.text}\n```\n")
             return
         }
         val all = AnchorResolver.lines(fileText)
         val from = maxOf(1, anchor.startLine - contextLines)
         val to = minOf(all.size, anchor.endLine + contextLines)
-        out.append("\nLocation: ${anchor.path}, lines ${anchor.startLine}-${anchor.endLine}. ")
+        out.append("\n$label: ${anchor.path}, lines ${anchor.startLine}-${anchor.endLine}. ")
         out.append("The lines to change are marked with \">\".\n\n```\n")
         for (n in from..to) {
             val mark = if (n in anchor.startLine..anchor.endLine) ">" else " "

@@ -50,7 +50,7 @@ object CodeTodos {
                         id = "$path:${start + 1}",
                         title = document.getText(range).lines().joinToString(" ") { it.trim() },
                         priority = Priority.P3,
-                        anchor = Anchor(path, start + 1, end + 1, lines, emptyList(), emptyList()),
+                        anchors = listOf(Anchor(path, start + 1, end + 1, lines, emptyList(), emptyList())),
                     )
                 }
             }

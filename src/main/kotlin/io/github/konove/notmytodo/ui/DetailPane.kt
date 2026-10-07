@@ -18,6 +18,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.BrowserHyperlinkListener
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.InplaceButton
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SimpleColoredComponent
@@ -226,12 +227,17 @@ internal class Columns(
 
 /**
  * The item selected in the panel: icon buttons over its title, facts, anchored code, details and comments.
- * The code stands to the right of the rest, or under it in a narrow pane.
+ * The code stands to the right of the rest, or under it in a narrow pane. It is that of one anchor at a
+ * time; an item with several is stepped through with the arrows beside the place.
  * The Edit button swaps the title, facts and details for fields; Save writes them.
  */
 class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private val store get() = TodoService.getInstance(project).store
     private var current: TodoItem? = null
+
+    /** Which of the item's anchors the code box shows, and Jump, Re-attach and Remove act on. */
+    private var anchorIndex = 0
+    private val shownAnchor: Anchor? get() = current?.anchors?.getOrNull(anchorIndex)
 
     internal val titleField = JBTextField().apply { emptyText.text = "Title" }
     private val detailsArea = JBTextArea(3, 20).apply {
@@ -242,15 +248,23 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private val priorityBox = ComboBox(Priority.entries.toTypedArray()).apply { toolTipText = "Priority" }
     private val statusBox = ComboBox(Status.entries.toTypedArray()).apply { toolTipText = "Status" }
     private val tagsField = JBTextField().apply { emptyText.text = "#tags" }
-    internal val whereLabel = JBLabel().apply {
-        isOpaque = true
+    internal val whereLabel = JBLabel().apply { font = JBUI.Fonts.smallFont() }
+
+    /** The arrows that step through the anchors, shown beside the place when the item has several. */
+    internal val anchorSteps = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
+        isOpaque = false
+        add(InplaceButton("Previous Anchor", AllIcons.Actions.Back) { step(-1) })
+        add(InplaceButton("Next Anchor", AllIcons.Actions.Forward) { step(1) })
+    }
+    private val whereStrip = JPanel(BorderLayout()).apply {
         background = JBColor(Color(0xF7F8FA), Color(0x393B40))
-        font = JBUI.Fonts.smallFont()
         border = JBUI.Borders.merge(
             JBUI.Borders.empty(4, 10),
             JBUI.Borders.customLineBottom(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground()),
             true,
         )
+        add(whereLabel, BorderLayout.CENTER)
+        add(anchorSteps, BorderLayout.EAST)
     }
     internal val viewTitle: JBTextArea = readOnlyText().apply { font = font.deriveFont(Font.BOLD, font.size2D + 1f) }
     internal val viewMeta = SimpleColoredComponent().apply { isOpaque = false }
@@ -302,10 +316,12 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
                 setStatus(Status.OPEN)
             },
             Separator.getInstance(),
-            IconAction("Jump to Code", AllIcons.Actions.EditSource, { current?.anchor != null }) {
-                current?.let { ItemActions.navigate(project, it) }
+            IconAction("Jump to Code", AllIcons.Actions.EditSource, { shownAnchor != null }) {
+                current?.let { ItemActions.navigate(project, it, shownAnchor) }
             },
             IconAction("Re-attach to Selection", AllIcons.General.Locate, { tracked }) { reattach() },
+            IconAction("Add an Anchor: the Selection, or the Whole File", AllIcons.General.Add, { tracked }) { addAnchor() },
+            IconAction("Remove This Anchor", AllIcons.General.Remove, { tracked && shownAnchor != null }) { removeAnchor() },
             Separator.getInstance(),
             DecisionAction(),
             EditAction(),
@@ -325,7 +341,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         add(deleteToolbar.component, BorderLayout.EAST)
     }
     internal val codeBox: JPanel = RoundedBox().apply {
-        add(whereLabel, BorderLayout.NORTH)
+        add(whereStrip, BorderLayout.NORTH)
         add(ScrollPaneFactory.createScrollPane(codeArea, true), BorderLayout.CENTER)
     }
 
@@ -433,7 +449,11 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         columns.isVisible = item != null
         toolbarRow.isVisible = item != null
         if (item == null) return
-        if (shown == null) editing = false
+        if (shown == null) {
+            editing = false
+            anchorIndex = 0
+        }
+        anchorIndex = anchorIndex.coerceIn(0, maxOf(0, item.anchors.lastIndex))
         if (shown == null || titleField.text == shown.title) titleField.text = item.title
         if (shown == null || detailsArea.text == shown.details) detailsArea.text = item.details
         if (shown == null || priorityBox.selectedItem == shown.priority) priorityBox.selectedItem = item.priority
@@ -442,7 +462,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             tagsField.text = item.tags.joinToString(" ") { "#$it" }
         }
         val code = CodeTodos.isCode(item)
-        val anchor = item.anchor
+        val anchor = item.anchors.getOrNull(anchorIndex)
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
         val text = item.details to item.comments
@@ -475,8 +495,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             metaStrip.components.filterIsInstance<Chip>().forEach(metaStrip::remove)
             tags.forEach { metaStrip.add(Chip(it)) }
         }
-        whereLabel.text = anchor?.let(::where).orEmpty()
+        whereLabel.text = anchor?.let { where(it, item.anchors.size) }.orEmpty()
         whereLabel.toolTipText = anchor?.path
+        anchorSteps.isVisible = item.anchors.size > 1
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
         codeBox.isVisible = anchor != null
         if (anchor != null) showCode(anchor, PriorityColors.tint(item.priority))
@@ -484,29 +505,35 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         showMode()
     }
 
-    /** The anchor's place, with the directories greyed and shortened so the file name and lines stand out. */
-    private fun where(anchor: Anchor): String {
+    /**
+     * The anchor's place, with the directories greyed and shortened so the file name and lines stand out.
+     * When the item has several anchors, [of] of them, it starts with which one this is.
+     */
+    private fun where(anchor: Anchor, of: Int): String {
         val (dirs, file) = PathText.split(anchor.path)
-        val lines = when {
-            anchor.lost -> ""
-            anchor.startLine == anchor.endLine -> ":${anchor.startLine}"
-            else -> ":${anchor.startLine}–${anchor.endLine}"
-        }
+        val lines = if (anchor.lost || anchor.isFile) "" else ":${anchor.linesText("–")}"
         val grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground())
-        val before = (if (anchor.lost) "Anchor lost, was " else "") + dirs
+        val count = if (of > 1) "${anchorIndex + 1} of $of  ·  " else ""
+        val before = count + (if (anchor.lost) "Anchor lost, was " else "") + dirs
+        val after = if (anchor.isFile) "  ·  whole file" else ""
         return "<html><font color=\"$grey\">${StringUtil.escapeXmlEntities(before)}</font>" +
-            "<span>${StringUtil.escapeXmlEntities(file + lines)}</span></html>"
+            "<span>${StringUtil.escapeXmlEntities(file + lines)}</span>" +
+            "<font color=\"$grey\">${StringUtil.escapeXmlEntities(after)}</font></html>"
     }
 
     /**
      * Shows the anchored lines with [CONTEXT_LINES] of the file either side, numbered, and the
-     * anchored ones tinted. A lost anchor shows only the text it was saved with.
+     * anchored ones tinted. A lost anchor shows only the text it was saved with. An anchor on a
+     * whole file shows how the file starts, with nothing tinted.
      */
     private fun showCode(anchor: Anchor, tint: Color) {
         val fileLines = if (anchor.lost) null else TodoService.getInstance(project).readText(anchor.path)?.lines()
         val first: Int
         val shownLines: List<String>
-        if (fileLines == null || anchor.endLine > fileLines.size) {
+        if (anchor.isFile) {
+            first = 1
+            shownLines = fileLines.orEmpty().take(2 * CONTEXT_LINES)
+        } else if (fileLines == null || anchor.endLine > fileLines.size) {
             first = anchor.startLine
             shownLines = anchor.text.lines()
         } else {
@@ -515,15 +542,20 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         }
         val width = (first + shownLines.size).toString().length
         val numbered = shownLines.mapIndexed { i, line -> (first + i).toString().padStart(width) + "  " + line }
-        val shown = Triple(numbered.joinToString("\n"), anchor.startLine - first, anchor.endLine - first)
+        val shown = if (anchor.isFile) Triple(numbered.joinToString("\n"), -1, -1)
+        else Triple(numbered.joinToString("\n"), anchor.startLine - first, anchor.endLine - first)
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
         if (shown == shownCode && tint == shownTint) return
         shownCode = shown
         shownTint = tint
         codeArea.text = shown.first
+        codeArea.highlighter.removeAllHighlights()
+        if (shown.second < 0) {
+            codeArea.caretPosition = 0
+            return
+        }
         val start = codeArea.getLineStartOffset(shown.second)
         val end = codeArea.getLineEndOffset(minOf(shown.third, codeArea.lineCount - 1))
-        codeArea.highlighter.removeAllHighlights()
         codeArea.highlighter.addHighlight(start, end, LinePainter(tint))
         codeArea.caretPosition = start
         SwingUtilities.invokeLater {
@@ -580,12 +612,38 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         show(store.find(item.id))
     }
 
+    internal fun step(by: Int) {
+        val item = current?.takeIf { it.anchors.isNotEmpty() } ?: return
+        anchorIndex = Math.floorMod(anchorIndex + by, item.anchors.size)
+        show(item)
+    }
+
+    /** Points the shown anchor at the selection. */
     private fun reattach() {
         val item = current ?: return
         val editor = FileEditorManager.getInstance(project).selectedTextEditor
-        if (editor == null || !project.service<AnchorTracker>().reattach(item.id, editor)) {
+        if (editor == null || !project.service<AnchorTracker>().reattach(item.id, editor, anchorIndex)) {
             Messages.showInfoMessage(project, "Select the code in the editor first.", "Not My TODO")
+            return
         }
+        show(store.find(item.id))
+    }
+
+    private fun addAnchor() {
+        val item = current ?: return
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor
+        if (editor == null || !project.service<AnchorTracker>().add(item.id, editor)) {
+            Messages.showInfoMessage(project, "Open the file in the editor first, and select the code if it is only a part of it.", "Not My TODO")
+            return
+        }
+        // Show the one just added; it is the last.
+        anchorIndex = Int.MAX_VALUE
+        show(store.find(item.id))
+    }
+
+    internal fun removeAnchor() {
+        val item = current ?: return
+        if (project.service<AnchorTracker>().remove(item.id, anchorIndex)) show(store.find(item.id))
     }
 
     private fun delete() {

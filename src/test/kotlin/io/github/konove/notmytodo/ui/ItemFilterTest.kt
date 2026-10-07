@@ -12,10 +12,10 @@ import org.junit.Test
 class ItemFilterTest {
     private fun anchor(path: String, lost: Boolean = false) = Anchor(path, 1, 1, "x", emptyList(), emptyList(), lost)
     private val items = listOf(
-        TodoItem("T-1", "Cache findPath", "squad wide", Priority.P2, listOf("perf"), anchor = anchor("src/unit.cpp")),
+        TodoItem("T-1", "Cache findPath", "squad wide", Priority.P2, listOf("perf"), anchors = listOf(anchor("src/unit.cpp"))),
         TodoItem("T-2", "Decide save versioning", priority = Priority.P1, tags = listOf("design")),
-        TodoItem("T-10", "Rename costAt", priority = Priority.P1, tags = listOf("cleanup"), anchor = anchor("src/grid.h", lost = true)),
-        TodoItem("T-9", "Old bug", priority = Priority.P1, status = Status.DONE, anchor = anchor("src/unit.cpp")),
+        TodoItem("T-10", "Rename costAt", priority = Priority.P1, tags = listOf("cleanup"), anchors = listOf(anchor("src/grid.h", lost = true))),
+        TodoItem("T-9", "Old bug", priority = Priority.P1, status = Status.DONE, anchors = listOf(anchor("src/unit.cpp"))),
         TodoItem("T-3", "Skipped", priority = Priority.P3, status = Status.WONT_FIX),
     )
     private fun ids(q: ItemQuery) = ItemFilter.apply(items, q).map { it.id }
@@ -96,7 +96,7 @@ class ItemFilterTest {
 
     @Test
     fun `directory tree nests files in directories and joins single-child directories`() {
-        fun at(path: String, id: String) = TodoItem(id, id, anchor = anchor(path))
+        fun at(path: String, id: String) = TodoItem(id, id, anchors = listOf(anchor(path)))
         val a = at("lib/core/io/read.c", "T-1")
         val b = at("lib/core/io/write.c", "T-2")
         val c = at("top.c", "T-3")
@@ -134,5 +134,17 @@ class ItemFilterTest {
         assertTrue(html, "<strong>Needs</strong>" in html && "<code>code</code>" in html && "<ol>" in html)
         assertTrue(html, Regex("a\\. first\\s*<br").containsMatchIn(html))
         assertFalse(html, Regex("x\\s*<br").containsMatchIn(html))
+    }
+
+    @Test
+    fun `an item is in a file, or lost, by any of its anchors`() {
+        val two = TodoItem("T-20", "two places", anchors = listOf(anchor("src/a.cpp"), anchor("src/b.cpp", lost = true)))
+        val whole = TodoItem("T-21", "whole file", anchors = listOf(Anchor.file("src/b.cpp")))
+        val all = listOf(two, whole, TodoItem("T-22", "note"))
+        fun ids(scope: Scope, path: String? = null) = ItemFilter.apply(all, ItemQuery(scope = scope, currentPath = path)).map { it.id }
+        assertEquals(listOf("T-20", "T-21"), ids(Scope.THIS_FILE, "src/b.cpp"))
+        assertEquals(listOf("T-20"), ids(Scope.THIS_FILE, "src/a.cpp"))
+        assertEquals(listOf("T-20"), ids(Scope.ANCHOR_LOST))
+        assertEquals(listOf("T-22"), ids(Scope.NOTES))
     }
 }

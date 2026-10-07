@@ -30,7 +30,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val store = service.store
         val psi = myFixture.configureByText("a.txt", text)
         val path = service.relativePath(psi.virtualFile)!!
-        store.create(Draft("anchored", anchor = AnchorResolver.capture(path, text, 2, 2)))
+        store.create(Draft("anchored", anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
         val note = store.create(Draft("note"))
         store.update(note.id) { it.copy(status = Status.FIXED) }
         val panel = TodoPanel(project)
@@ -107,7 +107,7 @@ class UiSmokeTest : BasePlatformTestCase() {
 
     fun `test a TODO comment from the code is listed but never saved as an item`() {
         val anchor = io.github.konove.notmytodo.model.Anchor("b.txt", 2, 2, "TODO: tidy this up", emptyList(), emptyList())
-        val found = io.github.konove.notmytodo.model.TodoItem("b.txt:2", "TODO: tidy this up", anchor = anchor)
+        val found = io.github.konove.notmytodo.model.TodoItem("b.txt:2", "TODO: tidy this up", anchors = listOf(anchor))
         assertTrue(CodeTodos.isCode(found))
         assertEquals("tidy this up", CodeTodos.trackedTitle(found))
         assertEquals(listOf(found), CodeTodos.filter(listOf(found), "TIDY b.txt"))
@@ -175,7 +175,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val service = TodoService.getInstance(project)
         val path = service.relativePath(myFixture.configureByText("a.txt", text).virtualFile)!!
         val store = service.store
-        val anchored = store.create(Draft("anchored", details = "why", anchor = AnchorResolver.capture(path, text, 2, 2)))
+        val anchored = store.create(Draft("anchored", details = "why", anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
         val pane = DetailPane(project)
         pane.show(anchored)
         fun layout(width: Int) {
@@ -228,7 +228,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val long = "A title long enough that it has to wrap when the column gets narrow, which it does here"
         val tags = (1..12).map { "a-rather-long-tag-$it" }
         val note = store.create(Draft(long, details = "why ".repeat(200), tags = tags))
-        val anchored = store.create(Draft(long, details = "why ".repeat(200), tags = tags, anchor = AnchorResolver.capture(path, text, 2, 2)))
+        val anchored = store.create(Draft(long, details = "why ".repeat(200), tags = tags, anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
         val pane = DetailPane(project)
         fun deep(c: java.awt.Container) {
             // Without a window nothing is ever valid, so a resize does not invalidate by itself.
@@ -253,5 +253,30 @@ class UiSmokeTest : BasePlatformTestCase() {
         layout(500)
         assertTrue("${widest(pane.textColumn)} > ${pane.textColumn.width}", widest(pane.textColumn) <= pane.textColumn.width)
         assertTrue(pane.viewTitle.height > pane.viewTitle.getFontMetrics(pane.viewTitle.font).height)
+    }
+
+    fun `test the detail pane steps through the anchors of an item`() {
+        val service = TodoService.getInstance(project)
+        val path = service.relativePath(myFixture.configureByText("s.txt", text).virtualFile)!!
+        val store = service.store
+        val item = store.create(Draft("several", anchors = listOf(
+            AnchorResolver.capture(path, text, 2, 2), io.github.konove.notmytodo.model.Anchor.file(path),
+        )))
+        val pane = DetailPane(project)
+        pane.show(item)
+        assertTrue(pane.whereLabel.text, pane.whereLabel.text.contains("1 of 2") && pane.whereLabel.text.contains(">s.txt:2<"))
+        assertTrue(pane.anchorSteps.isVisible)
+        pane.step(1)
+        assertTrue(pane.whereLabel.text, pane.whereLabel.text.contains("2 of 2") && pane.whereLabel.text.contains(">s.txt<"))
+        assertTrue(pane.whereLabel.text, pane.whereLabel.text.contains("whole file"))
+        assertTrue(pane.codeBox.isVisible)
+        pane.step(1)
+        assertTrue(pane.whereLabel.text, pane.whereLabel.text.contains("1 of 2"))
+        pane.removeAnchor()
+        assertEquals(listOf(path), store.find(item.id)!!.anchors.map { it.place })
+        assertFalse(pane.whereLabel.text, pane.whereLabel.text.contains(" of "))
+        assertFalse(pane.anchorSteps.isVisible)
+        pane.removeAnchor()
+        assertFalse(pane.codeBox.isVisible)
     }
 }

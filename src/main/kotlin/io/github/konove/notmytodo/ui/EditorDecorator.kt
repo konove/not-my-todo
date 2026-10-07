@@ -18,6 +18,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.konove.notmytodo.ide.TodoService
+import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.settings.TodoSettingsListener
@@ -36,7 +37,7 @@ class TodoGutterRenderer(private val project: Project, val item: TodoItem) : Gut
     override fun hashCode(): Int = item.hashCode()
 }
 
-/** Draws a gutter mark, a tinted background and a mark on the scrollbar for every open item anchored in an open file. */
+/** Draws a gutter mark, a tinted background and a mark on the scrollbar for the anchored lines of every open item in an open file. */
 @Service(Service.Level.PROJECT)
 class EditorDecorator(private val project: Project) : Disposable {
     private val service get() = TodoService.getInstance(project)
@@ -66,14 +67,13 @@ class EditorDecorator(private val project: Project) : Disposable {
         if (project.isDisposed) return
         clear()
         if (!TodoSettings.getInstance().values.editorMarks) return
-        val items = service.store.items.filter { !it.isClosed && it.anchor?.lost == false }
+        val items = service.store.items.filter { item -> !item.isClosed && item.anchors.any(::marked) }
         if (items.isEmpty()) return
         for (file in FileEditorManager.getInstance(project).openFiles) {
             val path = service.relativePath(file) ?: continue
             val document = FileDocumentManager.getInstance().getCachedDocument(file) ?: continue
             val markup = DocumentMarkupModel.forDocument(document, project, true)
-            for (item in items) {
-                val anchor = item.anchor ?: continue
+            for ((item, anchor) in items.flatMap { item -> item.anchors.filter(::marked).map { item to it } }) {
                 if (anchor.path != path || anchor.endLine > document.lineCount) continue
                 val highlighter = markup.addRangeHighlighter(
                     document.getLineStartOffset(anchor.startLine - 1),
@@ -89,6 +89,9 @@ class EditorDecorator(private val project: Project) : Disposable {
             }
         }
     }
+
+    /** An anchor on a whole file has no lines to mark. */
+    private fun marked(anchor: Anchor): Boolean = !anchor.lost && !anchor.isFile
 
     fun decoratedIds(document: Document): List<String> =
         highlighters.filter { it.isValid && it.document === document }

@@ -16,6 +16,7 @@ import io.github.konove.notmytodo.handoff.HandoffDialog
 import io.github.konove.notmytodo.handoff.PromptBuilder
 import io.github.konove.notmytodo.handoff.PromptOptions
 import io.github.konove.notmytodo.handoff.TargetChoice
+import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.settings.FixTarget
@@ -37,10 +38,18 @@ object ItemActions {
         }
     }
 
-    fun navigate(project: Project, item: TodoItem) {
-        val anchor = item.anchor ?: return
+    /** Opens the item's first anchor in the editor, or [anchor] when one is named. */
+    fun navigate(project: Project, item: TodoItem, anchor: Anchor? = item.anchor) {
+        if (anchor == null) return
         val file = TodoService.getInstance(project).findFile(anchor.path) ?: return
-        OpenFileDescriptor(project, file, anchor.startLine - 1, 0).navigate(true)
+        OpenFileDescriptor(project, file, maxOf(0, anchor.startLine - 1), 0).navigate(true)
+    }
+
+    /** The text of every file [items] are anchored in and that can still be read, by path. */
+    private fun fileTexts(project: Project, items: List<TodoItem>): Map<String, String> {
+        val service = TodoService.getInstance(project)
+        return items.flatMap { it.anchors }.filterNot { it.lost }.map { it.path }.distinct()
+            .mapNotNull { path -> service.readText(path)?.let { path to it } }.toMap()
     }
 
     fun openInPanel(project: Project, id: String) {
@@ -62,17 +71,16 @@ object ItemActions {
 
     private fun handOff(project: Project, item: TodoItem): Boolean {
         val values = TodoSettings.getInstance().values
-        val service = TodoService.getInstance(project)
-        val fileText = item.anchor?.takeIf { !it.lost }?.let { service.readText(it.path) }
+        val files = fileTexts(project, listOf(item))
         val options = promptOptions(project)
         val available = availability(project)
         val target: FixTarget
         val prompt: String
         if (values.skipFixDialog) {
             target = TargetChoice.choose(values.defaultTarget, available).target
-            prompt = PromptBuilder.build(item, fileText, "", options)
+            prompt = PromptBuilder.build(item, files, "", options)
         } else {
-            val dialog = HandoffDialog(project, item, fileText, available, values.defaultTarget, options)
+            val dialog = HandoffDialog(project, item, files, available, values.defaultTarget, options)
             if (!dialog.showAndGet()) return false
             target = dialog.target
             prompt = dialog.prompt
@@ -175,10 +183,7 @@ object ItemActions {
             project, "Send ${items.size} items ($names) to $where$after${if (held > 0) "." else "?"}", "Fix with Claude", null,
         )
         if (answer != Messages.YES) return
-        val prompt = PromptBuilder.buildAll(
-            items.map { item -> item to item.anchor?.takeIf { !it.lost }?.let { service.readText(it.path) } },
-            promptOptions(project),
-        )
+        val prompt = PromptBuilder.buildAll(items, fileTexts(project, items), promptOptions(project))
         deliver(project, target, prompt, items.map { it.id })
         tracked.forEach { setStatus(project, it.id, Status.IN_PROGRESS) }
     }

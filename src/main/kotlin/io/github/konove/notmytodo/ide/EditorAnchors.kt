@@ -20,4 +20,10 @@ object EditorAnchors {
         if (end > start && document.getLineStartOffset(document.getLineNumber(end)) == end) end--
         return AnchorResolver.capture(path, document.text, document.getLineNumber(start) + 1, document.getLineNumber(end) + 1)
     }
+
+    /** Builds an anchor on the whole file shown in the editor. */
+    fun wholeFile(project: Project, editor: Editor): Anchor? {
+        val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return null
+        return TodoService.getInstance(project).relativePath(file)?.let(Anchor::file)
+    }
 }

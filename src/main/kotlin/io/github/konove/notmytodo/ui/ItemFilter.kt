@@ -58,9 +58,9 @@ object ItemFilter {
 
     private fun inScope(item: TodoItem, query: ItemQuery): Boolean = when (query.scope) {
         Scope.ALL -> true
-        Scope.THIS_FILE -> query.currentPath != null && item.anchor?.path == query.currentPath
-        Scope.NOTES -> item.anchor == null
-        Scope.ANCHOR_LOST -> item.anchor?.lost == true
+        Scope.THIS_FILE -> query.currentPath != null && item.anchors.any { it.path == query.currentPath }
+        Scope.NOTES -> item.anchors.isEmpty()
+        Scope.ANCHOR_LOST -> item.anyLost
         Scope.AGENT_READY -> !item.needsDecision && (item.status == Status.OPEN || item.status == Status.IN_PROGRESS)
         Scope.NEEDS_DECISION -> item.needsDecision
     }

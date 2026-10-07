@@ -29,7 +29,7 @@ class AnchorTrackerTest : BasePlatformTestCase() {
     private fun openWithItem(name: String, startLine: Int, endLine: Int): TodoItem {
         val psi = myFixture.configureByText(name, text)
         val path = service.relativePath(psi.virtualFile)!!
-        val item = store.create(Draft("t", anchor = AnchorResolver.capture(path, text, startLine, endLine)))
+        val item = store.create(Draft("t", anchors = listOf(AnchorResolver.capture(path, text, startLine, endLine))))
         tracker.syncFile(psi.virtualFile)
         return item
     }
@@ -119,7 +119,7 @@ class AnchorTrackerTest : BasePlatformTestCase() {
         val braces = "a\n}\n}\nb\n"
         val psi = myFixture.configureByText("j.txt", braces)
         val path = service.relativePath(psi.virtualFile)!!
-        val item = store.create(Draft("t", anchor = AnchorResolver.capture(path, braces, 2, 2)))
+        val item = store.create(Draft("t", anchors = listOf(AnchorResolver.capture(path, braces, 2, 2))))
         tracker.syncFile(psi.virtualFile)
         edit { myFixture.editor.document.deleteString(2, 4) }
         assertTrue(store.find(item.id)!!.anchor!!.lost)
@@ -133,5 +133,74 @@ class AnchorTrackerTest : BasePlatformTestCase() {
         Files.writeString(store.file, onDisk)
         edit { myFixture.editor.document.insertString(0, "zero\n") }
         assertEquals("from another branch", store.find(item.id)!!.anchor!!.text)
+    }
+
+    private fun openWithAnchors(name: String, vararg ranges: Pair<Int, Int>): TodoItem {
+        val psi = myFixture.configureByText(name, text)
+        val path = service.relativePath(psi.virtualFile)!!
+        val item = store.create(Draft("t", anchors = ranges.map { AnchorResolver.capture(path, text, it.first, it.second) }))
+        tracker.syncFile(psi.virtualFile)
+        return item
+    }
+
+    private fun places(item: TodoItem) = store.find(item.id)!!.anchors.map { it.place.substringAfterLast('/') }
+
+    fun `test each of several anchors follows its own lines`() {
+        val item = openWithAnchors("l.txt", 1 to 1, 3 to 4)
+        edit { myFixture.editor.document.insertString(text.indexOf("two"), "new\n") }
+        assertEquals(listOf("l.txt:1", "l.txt:4-5"), places(item))
+        assertEquals(listOf("one", "three\nfour"), store.find(item.id)!!.anchors.map { it.text })
+        edit { myFixture.editor.document.deleteString(0, "one\n".length) }
+        assertEquals(listOf(true, false), store.find(item.id)!!.anchors.map { it.lost })
+        assertEquals("l.txt:3-4", places(item)[1])
+    }
+
+    fun `test removing an anchor leaves the others following their own lines`() {
+        val item = openWithAnchors("m.txt", 1 to 1, 2 to 2, 4 to 4)
+        assertTrue(tracker.remove(item.id, 0))
+        assertEquals(listOf("m.txt:2", "m.txt:4"), places(item))
+        edit { myFixture.editor.document.insertString(text.indexOf("four"), "new\n") }
+        assertEquals(listOf("m.txt:2", "m.txt:5"), places(item))
+        assertEquals(listOf("two", "four"), store.find(item.id)!!.anchors.map { it.text })
+        assertTrue(tracker.remove(item.id, 0))
+        assertTrue(tracker.remove(item.id, 0))
+        assertEquals(emptyList<String>(), places(item))
+    }
+
+    fun `test an anchor changed elsewhere is resolved again and not written over by its marker`() {
+        val item = openWithAnchors("n.txt", 2 to 2)
+        val path = store.find(item.id)!!.anchor!!.path
+        store.update(item.id) { it.copy(anchors = listOf(AnchorResolver.capture(path, text, 1, 1)) + it.anchors) }
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        edit { myFixture.editor.document.insertString(text.indexOf("two"), "new\n") }
+        assertEquals(listOf("n.txt:1", "n.txt:3"), places(item))
+    }
+
+    fun `test add takes the selection, or the whole file when nothing is selected`() {
+        val item = openWithAnchors("o.txt", 2 to 2)
+        myFixture.editor.selectionModel.setSelection(text.indexOf("four"), text.indexOf("four") + 4)
+        assertTrue(tracker.add(item.id, myFixture.editor))
+        myFixture.editor.selectionModel.removeSelection()
+        assertTrue(tracker.add(item.id, myFixture.editor))
+        assertEquals(listOf("o.txt:2", "o.txt:4", "o.txt"), places(item))
+        // The same place twice is one anchor.
+        assertTrue(tracker.add(item.id, myFixture.editor))
+        assertEquals(3, store.find(item.id)!!.anchors.size)
+        myFixture.editor.selectionModel.setSelection(0, 3)
+        assertTrue(tracker.reattach(item.id, myFixture.editor, 1))
+        assertEquals(listOf("o.txt:2", "o.txt:1", "o.txt"), places(item))
+    }
+
+    fun `test an anchor on a whole file follows a rename and is lost with the file`() {
+        val psi = myFixture.configureByText("p.txt", text)
+        val path = service.relativePath(psi.virtualFile)!!
+        val item = store.create(Draft("t", anchors = listOf(io.github.konove.notmytodo.model.Anchor.file(path), AnchorResolver.capture(path, text, 2, 2))))
+        tracker.syncFile(psi.virtualFile)
+        edit { myFixture.editor.document.deleteString(0, myFixture.editor.document.textLength) }
+        assertEquals(listOf(false, true), store.find(item.id)!!.anchors.map { it.lost })
+        myFixture.renameElement(myFixture.file, "q.txt")
+        assertEquals(listOf("q.txt", "q.txt"), store.find(item.id)!!.anchors.map { it.path.substringAfterLast('/') })
+        WriteCommandAction.runWriteCommandAction(project) { myFixture.file.virtualFile.delete(this) }
+        assertEquals(listOf(true, true), store.find(item.id)!!.anchors.map { it.lost })
     }
 }

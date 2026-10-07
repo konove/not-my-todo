@@ -20,7 +20,10 @@ AI agent take items off your hands.
   does the work only after you have chosen.
 - **Anchors:** items follow their code as you edit, switch branches, or let an
   agent change files. If the code can no longer be found the item shows
-  "Anchor lost"; select the code and press Re-attach to selection.
+  "Anchor lost"; select the code and press Re-attach to selection. An item can
+  have several anchors: Add an Anchor in the detail pane attaches the selection,
+  or the whole file when nothing is selected, and the arrows beside the place step through them.
+  An anchor on a whole file follows the file when it is renamed or moved.
 - **Fix with Claude:** sends an item, with its code and 20 lines either side, to
   Claude Code in a terminal tab or to the clipboard.
 - **Settings:** Settings, Tools, Not My TODO. The default fix target, the command

@@ -14,13 +14,14 @@ object TodoJson {
      * The file version this plugin writes. Version 1 is what 0.1.0 wrote; 0.1.0 drops the fields it
      * does not know and refuses any other version. Version 2 has the same layout, and promises that
      * every reader keeps unknown fields, so a new field needs no new version. A version 1 file is
-     * still read, and becomes version 2 when it is next written.
+     * still read, and becomes version 2 when it is next written. Both wrote one "anchor" object where
+     * there now is an "anchors" array; that is read as the only anchor and not written again.
      */
     const val NEWEST_VERSION = 2
 
     private val fileKeys = setOf("version", "nextId", "items")
     private val itemKeys = setOf(
-        "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor",
+        "id", "title", "details", "priority", "tags", "status", "author", "created", "updated", "comments", "anchor", "anchors",
     )
     private val commentKeys = setOf("author", "time", "text")
     private val anchorKeys = setOf("path", "startLine", "endLine", "text", "before", "after", "lost")
@@ -63,20 +64,29 @@ object TodoJson {
             }
             o.add("comments", comments)
         }
-        item.anchor?.let { a ->
-            val ao = JsonObject()
-            ao.addProperty("path", a.path)
+        if (item.anchors.isNotEmpty()) {
+            val anchors = JsonArray()
+            item.anchors.forEach { anchors.add(encodeAnchor(it)) }
+            o.add("anchors", anchors)
+        }
+        o.addUnknown(item.unknown)
+        return o
+    }
+
+    /** An anchor on a whole file has only its path and whether it is lost. */
+    private fun encodeAnchor(a: Anchor): JsonObject {
+        val ao = JsonObject()
+        ao.addProperty("path", a.path)
+        if (!a.isFile) {
             ao.addProperty("startLine", a.startLine)
             ao.addProperty("endLine", a.endLine)
             ao.addProperty("text", a.text)
             ao.add("before", strings(a.before))
             ao.add("after", strings(a.after))
-            ao.addProperty("lost", a.lost)
-            ao.addUnknown(a.unknown)
-            o.add("anchor", ao)
         }
-        o.addUnknown(item.unknown)
-        return o
+        ao.addProperty("lost", a.lost)
+        ao.addUnknown(a.unknown)
+        return ao
     }
 
     fun decode(text: String): TodoFile {
@@ -116,12 +126,15 @@ object TodoJson {
             Author.fromJson(it) ?: throw TodoFormatException("item $id has a bad author \"$it\"")
         } ?: Author.USER
         val comments = o.get("comments")?.takeIf { it.isJsonArray }?.asJsonArray?.map { decodeComment(it, id) }.orEmpty()
-        val anchor = o.get("anchor")?.takeIf { it.isJsonObject }?.asJsonObject?.let { decodeAnchor(it, id) }
+        val anchors = o.get("anchors")?.takeIf { it.isJsonArray }?.asJsonArray?.map {
+            if (!it.isJsonObject) throw TodoFormatException("item $id has an anchor that is not an object")
+            decodeAnchor(it.asJsonObject, id)
+        } ?: listOfNotNull(o.get("anchor")?.takeIf { it.isJsonObject }?.asJsonObject?.let { decodeAnchor(it, id) })
         return TodoItem(
             id = id, title = title, details = o.str("details").orEmpty(), priority = priority,
             tags = Tags.normalizeAll(o.strList("tags")), status = status, author = author,
             created = o.str("created").orEmpty(), updated = o.str("updated").orEmpty(), comments = comments,
-            anchor = anchor, unknown = o.unknown(itemKeys),
+            anchors = anchors, unknown = o.unknown(itemKeys),
         )
     }
 
@@ -136,10 +149,10 @@ object TodoJson {
 
     private fun decodeAnchor(o: JsonObject, id: String): Anchor {
         val path = o.str("path")?.takeIf { it.isNotBlank() } ?: throw TodoFormatException("item $id has an anchor with no path")
-        val start = o.int("startLine") ?: throw TodoFormatException("item $id has an anchor with no startLine")
+        val lost = o.get("lost")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean ?: false
+        val start = o.int("startLine") ?: return Anchor.file(path).copy(lost = lost, unknown = o.unknown(anchorKeys))
         val end = o.int("endLine") ?: start
         if (start < 1 || end < start) throw TodoFormatException("item $id has a bad anchor line range $start-$end")
-        val lost = o.get("lost")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean ?: false
         return Anchor(path, start, end, o.str("text").orEmpty(), o.strList("before"), o.strList("after"), lost, o.unknown(anchorKeys))
     }
 

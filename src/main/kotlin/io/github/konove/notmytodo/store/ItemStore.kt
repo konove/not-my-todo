@@ -28,7 +28,7 @@ data class Draft(
     val priority: Priority = Priority.P2,
     val tags: List<String> = emptyList(),
     val author: Author = Author.USER,
-    val anchor: Anchor? = null,
+    val anchors: List<Anchor> = emptyList(),
 )
 
 /**
@@ -100,7 +100,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         val item = TodoItem(
             id = ItemId.of(f.nextId), title = title, details = draft.details, priority = draft.priority,
             tags = Tags.normalizeAll(draft.tags), status = Status.OPEN, author = draft.author,
-            created = now, updated = now, anchor = draft.anchor,
+            created = now, updated = now, anchors = draft.anchors,
         )
         f.copy(nextId = f.nextId + 1, items = f.items + item) to item
     }
@@ -111,8 +111,13 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         val edited = changed.copy(
             id = old.id, author = old.author, created = old.created, updated = old.updated,
             title = changed.title.trim(), tags = Tags.normalizeAll(changed.tags),
-            // A change may build the item or its anchor anew; what a newer plugin wrote stays either way.
-            unknown = old.unknown, anchor = changed.anchor?.copy(unknown = old.anchor?.unknown.orEmpty()),
+            // A change may build the item or an anchor anew; what a newer plugin wrote stays either way.
+            // An anchor built anew has no unknown fields of its own and takes those of the one it replaces.
+            unknown = old.unknown,
+            anchors = changed.anchors.mapIndexed { i, a ->
+                val replaced = old.anchors.getOrNull(i)?.takeIf { it !in changed.anchors }
+                if (a.unknown.isEmpty() && replaced != null) a.copy(unknown = replaced.unknown) else a
+            },
         )
         if (edited.title.isEmpty()) throw StoreException("the title must not be empty")
         if (edited == old) return@mutate f to old

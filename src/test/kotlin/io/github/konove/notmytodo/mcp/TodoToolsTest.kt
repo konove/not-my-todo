@@ -62,7 +62,10 @@ class TodoToolsTest : BasePlatformTestCase() {
         failsWith("title") { tools.create("  ", null, null, null, null, null, null) }
         failsWith("priority") { tools.create("x", null, "urgent", null, null, null, null) }
         failsWith("no/such.txt") { tools.create("x", null, null, null, "no/such.txt", 1, 1) }
-        failsWith("startLine") { tools.create("x", null, null, null, path, null, null) }
+        failsWith("startLine") { tools.create("x", null, null, null, path, null, 2) }
+        failsWith("path") { tools.create("x", null, null, null, null, 2, null) }
+        failsWith("$path:two") { tools.create("x", null, null, null, null, null, null, "$path:two") }
+        failsWith("no/such.txt") { tools.create("x", null, null, null, path, 1, 1, "no/such.txt") }
         failsWith("5 lines") { tools.create("x", null, null, null, path, 4, 9) }
         assertEquals(0, store.items.size)
     }
@@ -75,7 +78,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         tools.update("T-2", null, null, null, null, "done")
         val all = JsonParser.parseString(tools.list(null, null, null, null)).asJsonArray
         assertEquals(2, all.size())
-        assertFalse(all[0].asJsonObject.getAsJsonObject("anchor").has("text"))
+        assertFalse(all[0].asJsonObject.getAsJsonArray("anchors")[0].asJsonObject.has("text"))
         UsefulTestCase.assertSize(1, JsonParser.parseString(tools.list("done", null, null, null)).asJsonArray.toList())
         UsefulTestCase.assertSize(1, JsonParser.parseString(tools.list(null, "#perf", null, null)).asJsonArray.toList())
         UsefulTestCase.assertSize(1, JsonParser.parseString(tools.list(null, null, "p1", null)).asJsonArray.toList())
@@ -112,8 +115,8 @@ class TodoToolsTest : BasePlatformTestCase() {
         tools.create("gone", null, null, "bugs", path, 3, 3)
         tools.create("gone too", null, null, null, path, 4, 4)
         tools.create("note", null, null, "bugs", null, null, null)
-        store.update("T-2") { it.copy(anchor = it.anchor!!.copy(lost = true)) }
-        store.update("T-3") { it.copy(anchor = it.anchor!!.copy(lost = true)) }
+        store.update("T-2") { it.copy(anchors = listOf(it.anchor!!.copy(lost = true))) }
+        store.update("T-3") { it.copy(anchors = listOf(it.anchor!!.copy(lost = true))) }
         fun ids(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject.get("id").asString }
 
         assertEquals(listOf("T-2", "T-3"), ids(tools.list(lost = true)))
@@ -144,8 +147,8 @@ class TodoToolsTest : BasePlatformTestCase() {
         project.service<AnchorTracker>().syncFile(psi.virtualFile)
         WriteCommandAction.runWriteCommandAction(project) { myFixture.editor.document.insertString(0, "zero\n") }
         val json = JsonParser.parseString(tools.get("T-1")).asJsonObject
-        assertEquals(3, json.getAsJsonObject("anchor").get("startLine").asInt)
-        assertEquals("two", json.get("code").asString)
+        assertEquals(3, json.getAsJsonArray("anchors")[0].asJsonObject.get("startLine").asInt)
+        assertEquals("two", json.getAsJsonArray("anchors")[0].asJsonObject.get("code").asString)
         failsWith("T-9") { tools.get("T-9") }
     }
 
@@ -169,17 +172,19 @@ class TodoToolsTest : BasePlatformTestCase() {
         tools.update("T-1", null, null, null, null, null, null, 3, 4)
         assertEquals("three\nfour", store.find("T-1")!!.anchor!!.text)
         val json = JsonParser.parseString(tools.get("T-1")).asJsonObject
-        assertEquals(3, json.getAsJsonObject("anchor").get("startLine").asInt)
-        assertEquals("three\nfour", json.get("code").asString)
+        assertEquals(3, json.getAsJsonArray("anchors")[0].asJsonObject.get("startLine").asInt)
+        assertEquals("three\nfour", json.getAsJsonArray("anchors")[0].asJsonObject.get("code").asString)
 
-        store.update("T-1") { it.copy(anchor = it.anchor!!.copy(lost = true)) }
+        store.update("T-1") { it.copy(anchors = listOf(it.anchor!!.copy(lost = true))) }
         tools.update("T-1", null, null, null, null, null, path, 1, null)
         val anchor = store.find("T-1")!!.anchor!!
         assertFalse(anchor.lost)
         assertEquals("one", anchor.text)
 
         failsWith("5 lines") { tools.update("T-1", null, null, null, null, null, null, 9, null) }
-        failsWith("startLine") { tools.update("T-1", null, null, null, null, null, path, null, null) }
+        tools.update("T-1", null, null, null, null, null, path, null, null)
+        assertEquals(listOf(path), store.find("T-1")!!.anchors.map { it.place })
+        failsWith("startLine") { tools.update("T-1", null, null, null, null, null, path, null, 2) }
         store.create(Draft("note"))
         failsWith("path") { tools.update("T-2", null, null, null, null, null, null, 1, null) }
     }
@@ -223,5 +228,52 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertEquals("and a fix", got[1].asJsonObject.get("text").asString)
         failsWith("text") { tools.comment("T-1", "  ") }
         failsWith("T-9") { tools.comment("T-9", "x") }
+    }
+
+    fun `test create attaches to a whole file and to several places`() {
+        val a = service.relativePath(myFixture.configureByText("m1.txt", text).virtualFile)!!
+        val b = service.relativePath(myFixture.configureByText("m2.txt", text).virtualFile)!!
+        tools.create("whole", null, null, null, a, null, null)
+        assertEquals(listOf(a), store.find("T-1")!!.anchors.map { it.place })
+        assertTrue(store.find("T-1")!!.anchor!!.isFile)
+
+        tools.create("several", null, null, null, a, 2, 3, "$b:4, $b\n./$a:2-3")
+        assertEquals(listOf("$a:2-3", "$b:4", b), store.find("T-2")!!.anchors.map { it.place })
+        assertEquals("four", store.find("T-2")!!.anchors[1].text)
+
+        val got = JsonParser.parseString(tools.get("T-2")).asJsonObject.getAsJsonArray("anchors").map { it.asJsonObject }
+        assertEquals("two\nthree", got[0].get("code").asString)
+        assertEquals("four", got[1].get("code").asString)
+        assertFalse(got[2].has("code"))
+        assertFalse(got[2].has("startLine"))
+
+        val rows = tools.list(compact = true).lines().filter { it.startsWith("{") }.map { JsonParser.parseString(it.trimEnd(',')).asJsonObject }
+        assertEquals("$a:2-3, $b:4, $b", rows[1].get("at").asString)
+        assertEquals(listOf("T-2"), JsonParser.parseString(tools.list(path = b)).asJsonArray.map { it.asJsonObject.get("id").asString })
+        val listed = JsonParser.parseString(tools.list(path = b)).asJsonArray[0].asJsonObject.getAsJsonArray("anchors")
+        assertEquals(3, listed.size())
+        assertFalse(listed[1].asJsonObject.has("text"))
+    }
+
+    fun `test update sets the whole list of places or moves the one in a file`() {
+        val a = service.relativePath(myFixture.configureByText("n1.txt", text).virtualFile)!!
+        val b = service.relativePath(myFixture.configureByText("n2.txt", text).virtualFile)!!
+        tools.create("x", null, null, null, a, 2, 2, "$b:1")
+        val kept = store.find("T-1")!!.anchors[1]
+
+        tools.update("T-1", null, null, null, null, null, a, 3, 4)
+        assertEquals(listOf("$a:3-4", "$b:1"), store.find("T-1")!!.anchors.map { it.place })
+        failsWith("2 places") { tools.update("T-1", null, null, null, null, null, null, 1, null) }
+        failsWith("places") { tools.update("T-1", null, null, null, null, null, "other.txt", 1, null) }
+        failsWith("not both") { tools.update("T-1", null, null, null, null, null, a, 1, null, "$a:1") }
+
+        tools.update("T-1", null, null, null, null, null, places = "$b:1, $a")
+        assertEquals(listOf("$b:1", a), store.find("T-1")!!.anchors.map { it.place })
+        assertEquals(kept, store.find("T-1")!!.anchors[0])
+
+        tools.update("T-1", null, null, null, null, null, places = "")
+        assertTrue(store.find("T-1")!!.anchors.isEmpty())
+        tools.update("T-1", null, null, null, null, null, null, null, null)
+        assertTrue(store.find("T-1")!!.anchors.isEmpty())
     }
 }
