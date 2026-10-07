@@ -29,6 +29,7 @@ dependencies {
         bundledPlugin("com.intellij.mcpServer")
         bundledPlugin("org.jetbrains.plugins.terminal")
         pluginVerifier()
+        zipSigner()
         testFramework(TestFrameworkType.Platform)
     }
     testImplementation("junit:junit:4.13.2")
@@ -43,6 +44,12 @@ intellijPlatform {
             sinceBuild = "262"
             untilBuild = provider { null }
         }
+    }
+    signing {
+        // The key and certificate stay out of the repo; signPlugin reads them from the environment.
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
     }
     pluginVerification {
         ides {

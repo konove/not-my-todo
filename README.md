@@ -72,6 +72,11 @@ machine has none, a JDK 25. Gradle itself needs a JDK 17 or newer to start.
 Install the zip with Settings, Plugins, the gear menu,
 Install Plugin from Disk.
 
+`./gradlew signPlugin` writes a signed zip for the Marketplace next to it. It
+reads the certificate chain, the private key and the key's password from the
+environment variables `CERTIFICATE_CHAIN`, `PRIVATE_KEY` and
+`PRIVATE_KEY_PASSWORD`; none of them belong in the repo.
+
 ## License
 
 Copyright 2026 konove. Licensed under the [Apache License, Version 2.0](LICENSE).
