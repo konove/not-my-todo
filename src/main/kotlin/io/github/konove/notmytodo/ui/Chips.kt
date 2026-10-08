@@ -167,6 +167,10 @@ internal class ChipRow : JPanel(null) {
     /** What the row shows, cut or not. */
     val texts: List<String> get() = chips.take(count).map { it.text }
 
+    /** Every chip of the row, for a tooltip, when the last layout had no room for some of them. */
+    var tip: String? = null
+        private set
+
     fun show(specs: List<ChipSpec>) {
         while (chips.size < specs.size) chips += Chip(specs[chips.size]).also(::add)
         specs.forEachIndexed { i, spec -> chips[i].spec = spec }
@@ -203,6 +207,7 @@ internal class ChipRow : JPanel(null) {
             }
         }
         more.isVisible = left > 0
+        tip = if (left > 0) texts.joinToString("   ") else null
         if (left > 0) more.setBounds(x, y, moreWidth - gap, h)
     }
 }

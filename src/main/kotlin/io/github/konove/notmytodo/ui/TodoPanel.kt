@@ -59,6 +59,7 @@ import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Container
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -76,6 +77,7 @@ import javax.swing.ListCellRenderer
 import javax.swing.KeyStroke
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 
 /** An icon button for a toolbar; shown only while [visible] holds. */
@@ -114,7 +116,19 @@ class TodoPanel(
         }
     }
     private val model = CollectionListModel<Any>()
-    private val table = JBList(model)
+    private val table = object : JBList<Any>(model) {
+        /** The chips a row has no room for are named when the pointer rests on its chips. */
+        override fun getToolTipText(e: MouseEvent): String? {
+            val index = locationToIndex(e.point)
+            val bounds = if (index < 0) null else getCellBounds(index, index)
+            if (bounds == null || !bounds.contains(e.point)) return null
+            val row = cellRenderer.getListCellRendererComponent(this, model.getElementAt(index), index, false, false)
+            row.bounds = bounds
+            layOut(row)
+            val under = SwingUtilities.getDeepestComponentAt(row, e.x - bounds.x, e.y - bounds.y)
+            return generateSequence(under) { it.parent }.filterIsInstance<ChipRow>().firstOrNull()?.tip
+        }
+    }
     private val search = SearchTextField(false)
     private val navSearch = SearchTextField(false)
     private var tagsCollapsed = false
@@ -680,11 +694,8 @@ class TodoPanel(
             mark.icon = if (code) AllIcons.General.TodoDefault else PriorityColors.icon(value.priority)
             title.append(
                 value.title,
-                when {
-                    value.isClosed -> SimpleTextAttributes(SimpleTextAttributes.STYLE_STRIKEOUT, null)
-                    selected -> SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
-                    else -> SimpleTextAttributes.REGULAR_ATTRIBUTES
-                },
+                if (value.isClosed) SimpleTextAttributes(SimpleTextAttributes.STYLE_STRIKEOUT, null)
+                else SimpleTextAttributes.REGULAR_ATTRIBUTES,
             )
             value.effort?.let { title.append("  ${it.name}", grey) }
             if (row.parts > 0) title.append("  ${row.partsClosed}/${row.parts} closed", grey)
@@ -710,6 +721,12 @@ class TodoPanel(
         const val SCOPE_KEY = "NotMyTodo.fileScope"
 
         fun cell() = SimpleColoredComponent().apply { isOpaque = false }
+
+        /** Lays out [component] and all that is in it; a renderer is never shown, so nothing else does. */
+        fun layOut(component: Component) {
+            component.doLayout()
+            (component as? Container)?.components?.forEach(::layOut)
+        }
 
         /** Priority, title, tags, place, status, ID, updated. The title takes what is left. */
         val COLUMN_WIDTHS = listOf(28, 0, 220, 240, 110, 50, 130)

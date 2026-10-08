@@ -106,10 +106,12 @@ class UiSmokeTest : BasePlatformTestCase() {
         row.setSize(1000, 28)
         row.doLayout()
         assertEquals(listOf("#refactoring", "#game", "#performance", "#docs"), shown())
+        assertNull(row.tip)
         val two = row.components.filterIsInstance<Chip>().filter { it.text == "#refactoring" || it.text == "#game" }.sumOf { it.preferredSize.width }
         row.setSize(two + 60, 28)
         row.doLayout()
         assertEquals(listOf("#refactoring", "#game", "+2"), shown())
+        assertEquals("#refactoring   #game   #performance   #docs", row.tip)
         row.setSize(10, 28)
         row.doLayout()
         assertEquals(listOf("#refactoring", "+3"), shown())
