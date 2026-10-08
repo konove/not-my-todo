@@ -106,7 +106,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Id of the item that already says what this one says. Pass an empty text to take the link away") duplicateOf: String? = null,
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own. Pass an empty text to take it out of its parent") parent: String? = null,
         @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind. Pass an empty text to take it away") source: String? = null,
-        @McpDescription("Id of the commit that fixed the item. Leave it out when the commit message names the item id: the commit is then read from git, and a fixedIn you pass is shown in its place. Pass an empty text to take it away") fixedIn: String? = null,
+        @McpDescription("Id of the commit that fixed the item. Leave it out when the commit message names the item id: the commit is then read from git, and a fixedIn you pass is shown in its place. HEAD, or another name git knows, is stored as the id of the commit it names now. Pass an empty text to take it away") fixedIn: String? = null,
         @McpDescription("What you did to fix the item, or why it is closed without a change, as Markdown in a sentence or two. Pass an empty text to take it away") resolution: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided. Pass an empty text to take it away") toDecide: String? = null,
         @McpDescription("A rough guess at how much work it is: s for under an hour, m for a few hours, l for a day or more. Pass an empty text to take it away") effort: String? = null,

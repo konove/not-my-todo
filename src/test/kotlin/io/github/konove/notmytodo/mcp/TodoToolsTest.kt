@@ -708,6 +708,15 @@ class TodoToolsTest : BasePlatformTestCase() {
             assertEquals(git("rev-parse", "--short", "HEAD"), fixedIn("T-4"))
             tools.update("T-1", null, null, null, null, "open")
             assertNull(fixedIn("T-1"))
+
+            // A name is stored as the commit it stands for at the time; what git does not know is stored as it is.
+            tools.update("T-2", null, null, null, null, "fixed", fixedIn = "HEAD~1")
+            assertEquals(head, store.find("T-2")!!.fixedIn)
+            tools.batch("""[{"id": "T-2", "fixedIn": " HEAD "}, {"id": "T-3", "fixedIn": "no-such-branch"}]""")
+            assertEquals(git("rev-parse", "--short", "HEAD"), store.find("T-2")!!.fixedIn)
+            assertEquals("no-such-branch", store.find("T-3")!!.fixedIn)
+            tools.update("T-3", null, null, null, null, null, fixedIn = "abc1234")
+            assertEquals("abc1234", store.find("T-3")!!.fixedIn)
         } finally {
             base.resolve(".git").toFile().deleteRecursively()
         }

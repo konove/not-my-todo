@@ -197,6 +197,8 @@ class TodoTools(private val project: Project) {
         val parsedEffort = effort?.let { if (it.isBlank()) null else parseEffort(it) }
         val parsedStatus = status?.let(::parseStatus)
         val parsedTags = tags?.let(Tags::parseList)
+        // HEAD and the like are stored as the commit they name now: later they would name another.
+        val commit = fixedIn?.let { project.service<FixCommits>().resolve(it) ?: it }
         return {
             it.copy(
                 title = title ?: it.title,
@@ -209,7 +211,7 @@ class TodoTools(private val project: Project) {
                 parent = if (parent != null) partOf else it.parent,
                 // The store reads an empty text as none.
                 source = source ?: it.source,
-                fixedIn = fixedIn ?: it.fixedIn,
+                fixedIn = commit ?: it.fixedIn,
                 resolution = resolution ?: it.resolution,
                 toDecide = toDecide ?: it.toDecide,
                 effort = if (effort != null) parsedEffort else it.effort,

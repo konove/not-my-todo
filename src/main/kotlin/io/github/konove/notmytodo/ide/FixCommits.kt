@@ -61,6 +61,23 @@ class FixCommits(private val project: Project) {
         }
     }
 
+    /**
+     * The id of the commit that [name] stands for now, when it is a name such as HEAD and not an id
+     * already. Null when git knows no such commit. It starts a process: not for the event thread.
+     */
+    fun resolve(name: String): String? {
+        val base = project.basePath ?: return null
+        val ref = name.trim()
+        if (ref.isEmpty() || ref.startsWith("-") || ID_LIKE.matches(ref)) return null
+        return try {
+            val command = GeneralCommandLine("git", "rev-parse", "--verify", "--quiet", "--short", "$ref^{commit}").withWorkDirectory(base)
+            CapturingProcessHandler(command).runProcess(TIMEOUT_MS).takeIf { !it.isTimeout && it.exitCode == 0 }
+                ?.stdout?.trim()?.takeIf { it.isNotEmpty() }
+        } catch (_: ExecutionException) {
+            null
+        }
+    }
+
     private fun log(base: String): String? = try {
         // The ids are looked for again in parse; the filter only keeps the output small.
         val command = GeneralCommandLine("git", "log", "--grep=T-[0-9]", "--format=%h$FIELD%B$RECORD").withWorkDirectory(base)
@@ -88,6 +105,7 @@ class FixCommits(private val project: Project) {
         private const val UNSTAMPED_MS = 5000
         private const val FIELD = "%x1f"
         private const val RECORD = "%x1e"
+        private val ID_LIKE = Regex("[0-9a-fA-F]{7,40}")
         private val ID = Regex("\\bT-[1-9][0-9]*\\b")
 
         /** The commit of each item id named in [log], which is the output of `git log`, newest commit first. */
