@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "io.github.konove"
-version = "0.1.0"
+version = "0.2.0"
 
 // The CLion release the plugin is built, tested and run against. Gradle downloads it.
 val clionVersion = "2026.2.3"

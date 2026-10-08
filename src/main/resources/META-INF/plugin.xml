@@ -18,8 +18,10 @@
             <li><b>Fix with Claude:</b> sends an item, with its code and the lines around it, to
                 Claude Code in a terminal tab or to the clipboard.</li>
             <li><b>MCP tools:</b> with the IDE's MCP server enabled, agents can use
-                <code>todo_list</code>, <code>todo_get</code>, <code>todo_create</code> and
-                <code>todo_update</code> to read items, add their own, and mark them fixed.</li>
+                <code>todo_list</code>, <code>todo_get</code>, <code>todo_create</code>,
+                <code>todo_update</code>, <code>todo_comment</code>, <code>todo_batch</code> and
+                <code>todo_decided</code> to read items, add their own, comment on them, record
+                what was decided, and mark them fixed.</li>
         </ul>
         <p>Items are stored in <code>.todos/items.json</code> in the project root, so an agent
             without MCP can read the file directly.</p>
@@ -28,6 +30,32 @@
             <a href="https://github.com/konove/not-my-todo">github.com/konove/not-my-todo</a>.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <p><b>0.2.0</b></p>
+        <ul>
+            <li>Items can be attached to several places, and to a whole file as well as to lines.</li>
+            <li>Items have a comment log, so an agent can add a finding without rewriting the
+                details.</li>
+            <li>Items can be blocked by another item, marked as a duplicate, or made part of a
+                parent item. A blocked item shows a padlock.</li>
+            <li>Items can carry an effort estimate of <code>s</code>, <code>m</code> or
+                <code>l</code>; search for it with <code>!s</code>, <code>!m</code> and
+                <code>!l</code>.</li>
+            <li>Items record where they came from, the commit that fixed them and a note on what
+                was done.</li>
+            <li>An agent that needs a decision asks in a comment, and a balloon shows the question.
+                The item keeps what was asked and what was answered.</li>
+            <li>New MCP tools: <code>todo_comment</code>, <code>todo_batch</code> and
+                <code>todo_decided</code>. <code>todo_list</code> filters by several tags, excluded
+                tags, several statuses, a directory, text, effort, lost anchors, blocked items and
+                parent, and has a compact mode. Its <code>tag</code> parameter is now
+                <code>tags</code>.</li>
+            <li>The detail pane puts the code beside the text, and the list, the detail pane and
+                the gutter popup show an item as the same chips. The filter bar wraps when the
+                list is narrow.</li>
+            <li><code>.todos/items.json</code> is now written as version 2, which keeps fields
+                added by newer versions of the plugin. Files written by 0.1.0 are still read;
+                0.1.0 cannot read a file written by this version.</li>
+        </ul>
         <p><b>0.1.0</b></p>
         <ul>
             <li>First release: capture TODO items from the editor, a tool window to search and
