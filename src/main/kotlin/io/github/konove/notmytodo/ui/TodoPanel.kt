@@ -221,15 +221,7 @@ class TodoPanel(
         filters.targetComponent = this
         val views = ActionManager.getInstance().createActionToolbar("NotMyTodoFilters", viewActions(), true)
         views.targetComponent = this
-        val listTop = JPanel(BorderLayout(8, 0)).apply {
-            border = JBUI.Borders.empty(2, 4)
-            add(search, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
-                add(filters.component)
-                add(fileScope)
-                add(views.component)
-            }, BorderLayout.EAST)
-        }
+        val listTop = FilterBar(search, filters.component, fileScope, views.component)
         val navPane = JPanel(BorderLayout()).apply {
             add(JPanel(BorderLayout()).apply {
                 border = JBUI.Borders.empty(2, 4)
