@@ -102,7 +102,17 @@ class TodoPanel(
     private val service = TodoService.getInstance(project)
     private val store = service.store
     private val navModel = CollectionListModel<Nav>()
-    private val nav = JBList(navModel)
+    private var navByMouse = false
+    internal val nav = object : JBList<Nav>(navModel) {
+        override fun processMouseEvent(e: MouseEvent) {
+            navByMouse = true
+            try {
+                super.processMouseEvent(e)
+            } finally {
+                navByMouse = false
+            }
+        }
+    }
     private val model = CollectionListModel<Any>()
     private val table = JBList(model)
     private val search = SearchTextField(false)
@@ -142,11 +152,15 @@ class TodoPanel(
         detail.onOpen = ::select
         nav.cellRenderer = NavRenderer()
         nav.fixedCellHeight = JBUI.scale(ROW_HEIGHT)
-        // The Tags heading folds on a click but is never selected; the arrow keys step over it.
+        // The Tags heading folds on a click but is never selected: a click leaves the selection
+        // where it is, and the arrow keys step over the heading.
         nav.selectionModel = object : DefaultListSelectionModel() {
             override fun setSelectionInterval(from: Int, to: Int) {
                 var index = to
-                if (navModel.items.getOrNull(index)?.header == true) index += if (index > leadSelectionIndex) 1 else -1
+                if (navModel.items.getOrNull(index)?.header == true) {
+                    if (navByMouse) return
+                    index += if (index > leadSelectionIndex) 1 else -1
+                }
                 if (index in 0 until navModel.size && !navModel.getElementAt(index).header) super.setSelectionInterval(index, index)
             }
         }
@@ -515,7 +529,7 @@ class TodoPanel(
      * A row of the left list: one of the scopes, a tag when [tag] is set, the heading over the
      * tags when [header] is set, or else the TODO comments in the code.
      */
-    private data class Nav(
+    internal data class Nav(
         val scope: Scope?, val tag: String?, val count: Int, val header: Boolean = false, val collapsed: Boolean = false,
     ) {
         val code: Boolean get() = scope == null && tag == null && !header

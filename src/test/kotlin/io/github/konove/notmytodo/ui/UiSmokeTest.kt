@@ -46,6 +46,29 @@ class UiSmokeTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test a click on the Tags heading folds the tags and leaves the selection alone`() {
+        TodoService.getInstance(project).store.create(Draft("tagged", tags = listOf("x")))
+        val panel = TodoPanel(project)
+        try {
+            val nav = panel.nav
+            val heading = panel.navLabels.indexOf("Tags")
+            nav.setSize(200, 1000)
+            nav.selectedIndex = heading - 1
+            val at = nav.getCellBounds(heading, heading).let { java.awt.Point(it.x + 20, it.y + it.height / 2) }
+            for (id in listOf(java.awt.event.MouseEvent.MOUSE_PRESSED, java.awt.event.MouseEvent.MOUSE_RELEASED, java.awt.event.MouseEvent.MOUSE_CLICKED)) {
+                nav.dispatchEvent(java.awt.event.MouseEvent(nav, id, System.currentTimeMillis(), 0, at.x, at.y, 1, false, java.awt.event.MouseEvent.BUTTON1))
+            }
+            assertEquals(heading - 1, nav.selectedIndex)
+            assertFalse(panel.navLabels.contains("#x"))
+            // The arrow keys still step over the heading.
+            nav.dispatchEvent(java.awt.event.MouseEvent(nav, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, at.x, at.y, 1, false, java.awt.event.MouseEvent.BUTTON1))
+            nav.selectedIndex = heading
+            assertEquals(heading + 1, nav.selectedIndex)
+        } finally {
+            Disposer.dispose(panel)
+        }
+    }
+
     fun `test capture dialog builds`() {
         val dialog = CaptureDialog(project, null)
         try {
