@@ -19,8 +19,8 @@
                 Claude Code in a terminal tab or to the clipboard.</li>
             <li><b>MCP tools:</b> with the IDE's MCP server enabled, agents can use
                 <code>todo_list</code>, <code>todo_get</code>, <code>todo_create</code>,
-                <code>todo_update</code>, <code>todo_comment</code>, <code>todo_batch</code> and
-                <code>todo_decided</code> to read items, add their own, comment on them, record
+                <code>todo_update</code>, <code>todo_comment</code>, <code>todo_batch</code>,
+                <code>todo_decided</code> and <code>todo_delete</code> to read items, add their own, comment on them, record
                 what was decided, and mark them fixed.</li>
         </ul>
         <p>Items are stored in <code>.todos/items.json</code> in the project root, so an agent

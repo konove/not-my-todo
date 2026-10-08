@@ -34,7 +34,9 @@ import io.github.konove.notmytodo.store.StoreException
 
 /**
  * Keeps anchors pointing at their code. Open files are followed with range markers and written
- * back after edits settle; files changed on disk are re-resolved from their text. An anchor on a
+ * back after edits settle; files changed on disk are re-resolved from their text. Lines that only
+ * moved are kept in memory, so the items file may hold the lines an anchor had before: every anchor
+ * is looked for in its file's text once it is read from the items file. An anchor on a
  * whole file has no lines to follow: only its path is kept right, and it is lost when the file goes.
  * Everything here runs on the event thread. The public functions take the read lock themselves:
  * a Swing listener, unlike an IDE action, is not given it.
@@ -54,6 +56,9 @@ class AnchorTracker(private val project: Project) : Disposable {
     private val service get() = TodoService.getInstance(project)
     private val store get() = service.store
     private val markers = HashMap<Key, Tracked>()
+
+    /** The anchors without a marker that were looked for in their file's text, as the store had them then. */
+    private val checked = HashMap<Key, Anchor>()
     private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
     private var started = false
 
@@ -87,18 +92,34 @@ class AnchorTracker(private val project: Project) : Disposable {
             }
         }, this)
         store.addListener {
-            ApplicationManager.getApplication().invokeLater({ syncOpenFiles() }, project.disposed)
+            ApplicationManager.getApplication().invokeLater({ syncChanged() }, project.disposed)
         }
-        syncOpenFiles()
+        syncChanged()
     }
 
-    private fun syncOpenFiles() = runReadActionBlocking {
+    private fun syncChanged() = runReadActionBlocking {
         val items = store.items.associateBy { it.id }
         markers.filter { (key, tracked) -> items[key.itemId]?.anchors?.getOrNull(key.index) != tracked.anchor }
             .keys.forEach(::drop)
+        checked.entries.removeIf { (key, anchor) -> items[key.itemId]?.anchors?.getOrNull(key.index) != anchor }
         // A store change says nothing new about file contents, so lost anchors stay lost here;
         // they are looked for again when the file itself is opened, reloaded or changed on disk.
-        FileEditorManager.getInstance(project).openFiles.forEach { syncFile(it, retryLost = false) }
+        val open = FileEditorManager.getInstance(project).openFiles
+        open.forEach { sync(it, retryLost = false) }
+        // An anchor that is new to the store may have the lines its code had before it moved.
+        allKeys().filter { it !in checked && it !in markers }.mapNotNull { anchorAt(it)?.path }.distinct()
+            .mapNotNull(service::findFile).filter { it !in open }.forEach { sync(it, retryLost = false) }
+    }
+
+    /**
+     * Looks at the files at [paths] as they are now, for an answer that is to say which anchors are
+     * lost. An anchor whose file is not there is lost; one that is lost already is left as it is.
+     */
+    fun syncPaths(paths: Collection<String>) = runReadActionBlocking {
+        for (path in paths) {
+            val file = service.findFile(path)?.takeIf { it.isValid && !it.isDirectory }
+            if (file != null) sync(file, retryLost = false) else markLost(path)
+        }
     }
 
     /** Makes sure every anchor in [file] is up to date, and has a marker if the file is open. */
@@ -116,10 +137,13 @@ class AnchorTracker(private val project: Project) : Disposable {
         for (key in keys) {
             // Read anew each time: saving one anchor of an item replaces the item.
             val anchor = anchorAt(key)?.takeIf { it.path == path } ?: continue
-            if (anchor.lost && !retryLost) continue
+            if (anchor.lost && !retryLost) {
+                checked[key] = anchor
+                continue
+            }
             if (anchor.isFile) {
                 // The file is here, so a whole-file anchor is found.
-                if (anchor.lost) saveAnchor(key, anchor, anchor.copy(lost = false))
+                (if (anchor.lost) saveAnchor(key, anchor, anchor.copy(lost = false)) else anchor)?.let { checked[key] = it }
                 continue
             }
             val tracked = markers[key]
@@ -129,12 +153,12 @@ class AnchorTracker(private val project: Project) : Disposable {
             drop(key)
             val range = AnchorResolver.resolve(anchor, text)
             if (range == null) {
-                if (!anchor.lost) saveAnchor(key, anchor, anchor.copy(lost = true))
+                (if (!anchor.lost) saveAnchor(key, anchor, anchor.copy(lost = true)) else anchor)?.let { checked[key] = it }
                 continue
             }
             val fresh = AnchorResolver.capture(path, text, range.startLine, range.endLine)
             val stored = (if (fresh != anchor) saveAnchor(key, anchor, fresh) else anchor) ?: continue
-            if (document != null) markers[key] = Tracked(createMarker(document, range), stored)
+            if (document != null) markers[key] = Tracked(createMarker(document, range), stored) else checked[key] = stored
         }
     }
 
@@ -248,7 +272,11 @@ class AnchorTracker(private val project: Project) : Disposable {
     }
 
     private fun markLostUnder(absolutePath: String) {
-        val gone = service.relativePath(absolutePath) ?: return
+        markLost(service.relativePath(absolutePath) ?: return)
+    }
+
+    /** Every anchor in the file at [gone], or under it when it is a directory, is lost. */
+    private fun markLost(gone: String) {
         for (key in allKeys()) {
             val anchor = anchorAt(key) ?: continue
             if (anchor.path != gone && !anchor.path.startsWith("$gone/")) continue
@@ -276,15 +304,18 @@ class AnchorTracker(private val project: Project) : Disposable {
     }
 
     /**
-     * Writes [fresh] in place of [expected] and returns it as stored, or null when it was not
-     * written. Anchor bookkeeping must never surface an error or change the item's updated time.
+     * Puts [fresh] in place of [expected] and returns it as stored, or null when it was not
+     * stored. Lines that only moved are kept in memory, so that the items file does not change with
+     * every edit above an anchor; the stored text and context find the place again on load. Anything
+     * else is written. Anchor bookkeeping must never surface an error or change the item's updated time.
      * It also only applies if the anchor on disk is still [expected], so a file changed behind our
      * back (another branch, an agent) is never overwritten from a stale snapshot.
      */
     private fun saveAnchor(key: Key, expected: Anchor, fresh: Anchor): Anchor? {
         val wanted = fresh.copy(unknown = expected.unknown)
+        val onlyMoved = wanted.copy(startLine = expected.startLine, endLine = expected.endLine) == expected
         return try {
-            val saved = store.update(key.itemId, touch = false) {
+            val saved = store.update(key.itemId, touch = false, persist = !onlyMoved) {
                 if (it.anchors.getOrNull(key.index) != expected) it
                 else it.copy(anchors = it.anchors.mapIndexed { i, old -> if (i == key.index) wanted else old })
             }
@@ -297,6 +328,7 @@ class AnchorTracker(private val project: Project) : Disposable {
     override fun dispose() {
         markers.values.forEach { it.marker.dispose() }
         markers.clear()
+        checked.clear()
     }
 
     private companion object {

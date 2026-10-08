@@ -19,8 +19,8 @@ class TodoToolset : McpToolset {
             "All filters must match. Returns a JSON array. Anchored items include, for each of their anchors, the file path and " +
             "current line range but not the code; use todo_get for the code. To choose what to work on next, take the highest priority first and, " +
             "within a priority, the least effort. Pass lost=true after moving or rewriting code " +
-            "to find the items that need re-attaching. Pass blocked=false to find the items that can be worked on now. Pass compact=true to survey many items, " +
-            "for example to check for a duplicate before todo_create."
+            "to find the items that need re-attaching: the files are read from disk again for every answer, so lost is as the code is now. Pass blocked=false to find the items that can be worked on now. Pass compact=true to survey many items, " +
+            "for example to check for a duplicate before todo_create; with anyText one call looks for it under every name it may have."
     )
     suspend fun todo_list(
         @McpDescription("Only items with one of these statuses, separated by commas or spaces: open, in_progress, fixed, done, wont_fix") status: String? = null,
@@ -34,19 +34,23 @@ class TodoToolset : McpToolset {
         @McpDescription("true for only blocked items, false for only items that are not blocked. An item is blocked while one it is blocked by is not done or wont_fix") blocked: Boolean? = null,
         @McpDescription("Only the parts of this item: the items that have it as their parent") parent: String? = null,
         @McpDescription("Only items with this effort: s, m or l") effort: String? = null,
-    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact, lost, blocked, parent, effort) }
+        @McpDescription("Only items whose title or details contain at least one of these words or \"quoted phrases\", in any case, separated by commas or spaces, for example: cache memoise \"lookup table\"") anyText: String? = null,
+    ): String = call { it.list(status, tags, priority, path, withoutTags, text, compact, lost, blocked, parent, effort, anyText) }
 
     @McpTool
     @McpDescription(
         "Get one TODO item by id (for example T-12) as JSON, with its details, its comments and, for an item anchored to code, " +
-            "its anchors, each with the current line range and the code at those lines. An anchor without lines is on the whole file. " +
+            "its anchors, each with the path, the current line range, lost and code, the code at those lines now. An anchor without lines is on the whole file. " +
+            "An anchor that is lost has no code but text, the code it was attached to, which is the clue to where it belongs now. " +
+            "Pass full=true for the text and the lines before and after it as they are stored, for every anchor. " +
             "toDecide is what the user has to decide, and decisions what the user was asked and answered. " +
             "Its links to other items are blockedBy, duplicateOf and parent; blocked is true while a blocker is still open, " +
             "and children lists the items that have this one as their parent."
     )
     suspend fun todo_get(
         @McpDescription("Item id, for example T-12") id: String,
-    ): String = call { it.get(id) }
+        @McpDescription("true to get, for every anchor, the stored text and the lines before and after it as well. Leave it out: code has the same lines as they are now") full: Boolean = false,
+    ): String = call { it.get(id, full) }
 
     @McpTool
     @McpDescription(
@@ -72,7 +76,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind, for example 30c6f6ae..e9ac6245. Put it here and not in details") source: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided") toDecide: String? = null,
         @McpDescription("Your rough guess at how much work it is: s for under an hour, m for a few hours, l for a day or more. Pass it whenever you can tell") effort: String? = null,
-        @McpDescription("true to get the whole item back as JSON, as todo_get gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
+        @McpDescription("true to get the whole item back as JSON, as todo_get with full=true gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
     ): String = call { it.create(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide, effort, full) }
 
     @McpTool
@@ -89,14 +93,15 @@ class TodoToolset : McpToolset {
             "Pass fixedIn only for a commit whose message does not name the item. " +
             "When an item says what another already says, set duplicateOf to that other item and status to \"wont_fix\". " +
             "Returns one line with the id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor) of the item as saved, " +
-            "and lost when an anchor is lost, and changed, the names of the fields that changed; pass full=true for the whole item as JSON."
+            "and lost when an anchor is lost, and changed, the names of the fields that changed. Of those, fixedIn, source, effort, parent, duplicateOf and blockedBy " +
+            "are shown as saved, null when taken away, as status, priority and tags always are: check them there, without a todo_get. Pass full=true for the whole item as JSON."
     )
     suspend fun todo_update(
         @McpDescription("Item id, for example T-12") id: String,
         @McpDescription("New title") title: String? = null,
         @McpDescription("New details") details: String? = null,
         @McpDescription("p1, p2 or p3") priority: String? = null,
-        @McpDescription("Replacement tags separated by commas or spaces. An item tagged needs-decision waits for the user: do not fix it. To make an item wait, pass toDecide") tags: String? = null,
+        @McpDescription("Replacement tags separated by commas or spaces. An item tagged needs-decision waits for the user: do not fix it. To make an item wait, pass toDecide; todo_decided takes the tag away, so do not pass tags to drop it") tags: String? = null,
         @McpDescription("open, in_progress, fixed, done or wont_fix") status: String? = null,
         @McpDescription("File to re-attach to, as a path relative to the project root; defaults to the item's current file") path: String? = null,
         @McpDescription("First line of the code to re-attach to, 1-based; leave out with a path to attach to the whole file. The line it already has re-attaches an anchor that is lost to the code that is there now") startLine: Int? = null,
@@ -110,7 +115,7 @@ class TodoToolset : McpToolset {
         @McpDescription("What you did to fix the item, or why it is closed without a change, as Markdown in a sentence or two. Pass an empty text to take it away") resolution: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided. Pass an empty text to take it away") toDecide: String? = null,
         @McpDescription("A rough guess at how much work it is: s for under an hour, m for a few hours, l for a day or more. Pass an empty text to take it away") effort: String? = null,
-        @McpDescription("true to get the whole item back as JSON, as todo_get gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
+        @McpDescription("true to get the whole item back as JSON, as todo_get with full=true gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
     ): String = call {
         it.update(id, title, details, priority, tags, status, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide, effort, full)
     }
@@ -128,7 +133,7 @@ class TodoToolset : McpToolset {
     suspend fun todo_comment(
         @McpDescription("Item id, for example T-12") id: String,
         @McpDescription("The comment, as Markdown") text: String,
-        @McpDescription("true to get the whole item back as JSON, as todo_get gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
+        @McpDescription("true to get the whole item back as JSON, as todo_get with full=true gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
     ): String = call { it.comment(id, text, full) }
 
     @McpTool
@@ -139,7 +144,7 @@ class TodoToolset : McpToolset {
             "fields of todo_update, path, startLine, endLine and places to re-attach it among them, and comment as well, which adds a comment " +
             "as todo_comment does; an object without an id is a new item " +
             "and takes the fields of todo_create, and ref as well: a name of your choosing by which the entries after it " +
-            "name the new item, written \"\$name\", in parent, blockedBy and duplicateOf. So one call files a whole item and its parts. " +
+            "name the new item, written \"\$ref\" (a \$ and the name), in parent, blockedBy and duplicateOf. So one call files a whole item and its parts. " +
             "The entries are applied in order, and when one is wrong none is saved " +
             "and the error names it. Returns one line per entry with the id, title, priority, effort, status and tags of the item as saved, " +
             "which for a new item is how you learn its id."
@@ -158,9 +163,12 @@ class TodoToolset : McpToolset {
     @McpDescription(
         "Record what the user decided about a TODO item: call it when you have asked the user what an item tagged " +
             "needs-decision waits for and the user has answered, before you do the work. The questions, the options and the " +
-            "answers are appended to the item's decisions with the time; the tags and the status are not changed. " +
+            "answers are appended to the item's decisions with the time, and the needs-decision tag is taken away: the item no longer " +
+            "waits for the user, so there is no need to pass tags to todo_update afterwards. toDecide stays as the record of what was asked. " +
+            "When the user answered only some of the questions, pass what is still open as toDecide to todo_update, which makes the item wait again. " +
+            "The status is not changed. " +
             "Returns one line with the id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor) of the item as saved, " +
-            "and lost when an anchor is lost; pass full=true for the whole item as JSON."
+            "and lost when an anchor is lost, and changed, the names of the fields that changed; pass full=true for the whole item as JSON."
     )
     suspend fun todo_decided(
         @McpDescription("Item id, for example T-12") id: String,
@@ -169,8 +177,19 @@ class TodoToolset : McpToolset {
                 "left out when you offered none) and answer (the option the user chose or what the user typed, in the user's words), " +
                 "for example [{\"question\": \"Which license?\", \"options\": [\"MIT\", \"Apache 2.0\"], \"answer\": \"MIT\"}]"
         ) decisions: JsonEntries,
-        @McpDescription("true to get the whole item back as JSON, as todo_get gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
+        @McpDescription("true to get the whole item back as JSON, as todo_get with full=true gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
     ): String = call { it.decided(id, decisions.text, full) }
+
+    @McpTool
+    @McpDescription(
+        "Delete a TODO item that you made: one made to try the tools, or filed by mistake. Do not edit the items file to remove an item. " +
+            "Only an item made by an agent can be deleted, and only when it is not the parent of an item and no item names it in " +
+            "blockedBy or duplicateOf; anything else is refused with an error that says why. An item the user made, or work that will not be done, " +
+            "is closed with todo_update and status \"wont_fix\" instead. Deleting cannot be undone. Returns one line with deleted, the id, and the title of the item that is gone."
+    )
+    suspend fun todo_delete(
+        @McpDescription("Item id, for example T-12") id: String,
+    ): String = call { it.delete(id) }
 
     private suspend fun call(block: (TodoTools) -> String): String {
         val project = currentCoroutineContext().project

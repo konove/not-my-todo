@@ -26,7 +26,27 @@ class TodoToolsetTest : BasePlatformTestCase() {
         for (tool in listOf("todo_create", "todo_update", "todo_comment", "todo_decided")) {
             assertEquals(tool, "boolean", properties(tool).getValue("full").jsonObject.getValue("type").jsonPrimitive.content)
         }
-        assertFalse(properties("todo_get").containsKey("full"))
+        assertEquals("boolean", properties("todo_get").getValue("full").jsonObject.getValue("type").jsonPrimitive.content)
+    }
+
+    private fun description(tool: String): String = TodoToolset().asTools().single { it.descriptor.name == tool }.descriptor.description
+
+    private fun description(tool: String, parameter: String): String =
+        properties(tool).getValue(parameter).jsonObject.getValue("description").jsonPrimitive.content
+
+    fun `test the descriptions an agent reads say what the tools take and answer`() {
+        for (tool in listOf("todo_create", "todo_update", "todo_comment", "todo_decided")) {
+            assertTrue(tool, description(tool).contains("full=true"))
+        }
+        val batch = description("todo_batch")
+        for (said in listOf("ref", "\"\$ref\"", "path, startLine, endLine and places")) assertTrue(said, batch.contains(said))
+        assertTrue(description("todo_batch", "items").contains("\"ref\""))
+        assertTrue(description("todo_get").contains("full=true"))
+        assertTrue(description("todo_get").contains("lost"))
+        assertTrue(description("todo_decided").contains("needs-decision tag is taken away"))
+        assertTrue(description("todo_update").contains("changed"))
+        assertTrue(description("todo_list", "anyText").contains("at least one"))
+        assertTrue(description("todo_delete").contains("you made"))
     }
 
     fun `test an array is read as it is and so is a text that holds one`() {

@@ -328,7 +328,7 @@ class ItemStoreTest {
     }
 
     @Test
-    fun `decisions are added to the record with the time, and nothing else changes`() {
+    fun `decisions are added to the record with the time, and the item no longer waits`() {
         val s = store()
         s.create(Draft("pick a license", tags = listOf("needs-decision"), toDecide = " MIT or Apache? "))
         assertNull(s.create(Draft("b", toDecide = " ")).toDecide)
@@ -344,7 +344,7 @@ class ItemStoreTest {
             item.decisions,
         )
         assertEquals("MIT or Apache?", item.toDecide)
-        assertTrue(item.needsDecision)
+        assertFalse(item.needsDecision)
         assertEquals(Status.OPEN, item.status)
         assertThrows(StoreException::class.java) { s.decide("T-1", emptyList()) }
         assertThrows(StoreException::class.java) { s.decide("T-1", listOf(Decision(" ", emptyList(), "a", ""))) }
@@ -359,5 +359,58 @@ class ItemStoreTest {
         assertEquals(Effort.S, s.create(Draft("a", effort = Effort.S)).effort)
         assertNull(s.create(Draft("b")).effort)
         assertEquals(Effort.S, store().find("T-1")!!.effort)
+    }
+
+    private fun anchor(line: Int) = Anchor("a.txt", line, line, "x", emptyList(), emptyList())
+
+    @Test
+    fun `a change kept in memory is written only when that item is saved for another reason`() {
+        val s = store()
+        s.create(Draft("a", anchors = listOf(anchor(1))))
+        s.create(Draft("b", anchors = listOf(anchor(5))))
+        val written = Files.readString(file)
+        var fired = 0
+        s.addListener { fired++ }
+        val moved = s.update("T-1", touch = false, persist = false) { it.copy(anchors = listOf(anchor(3))) }
+        s.update("T-2", touch = false, persist = false) { it.copy(anchors = listOf(anchor(7))) }
+        assertEquals(3, moved.anchor!!.startLine)
+        assertEquals(2, fired)
+        assertEquals(written, Files.readString(file))
+        assertEquals(listOf(3, 7), s.items.map { it.anchor!!.startLine })
+
+        // Saving one item leaves the lines of the other as the file has them.
+        s.update("T-2") { it.copy(title = "renamed") }
+        assertEquals(listOf(3, 7), s.items.map { it.anchor!!.startLine })
+        assertEquals(listOf(1, 7), store().items.map { it.anchor!!.startLine })
+        s.create(Draft("c"))
+        s.delete("T-3")
+        assertEquals(listOf(1, 7), store().items.map { it.anchor!!.startLine })
+        s.update("T-1") { it.copy(status = Status.FIXED) }
+        assertEquals(listOf(3, 7), store().items.map { it.anchor!!.startLine })
+    }
+
+    @Test
+    fun `lines kept in memory outlast a change that the file brings to another item`() {
+        val s = store()
+        s.create(Draft("a", anchors = listOf(anchor(1))))
+        s.create(Draft("b", anchors = listOf(anchor(5))))
+        s.update("T-1", touch = false, persist = false) { it.copy(anchors = listOf(anchor(3))) }
+        s.update("T-2", touch = false, persist = false) { it.copy(anchors = listOf(anchor(7))) }
+        Files.writeString(file, Files.readString(file).replace("\"title\": \"b\"", "\"title\": \"from another branch\""))
+        assertTrue(s.reload())
+        assertEquals(3, s.find("T-1")!!.anchor!!.startLine)
+        // What the file changed is taken as the file has it.
+        assertEquals("from another branch", s.find("T-2")!!.title)
+        assertEquals(5, s.find("T-2")!!.anchor!!.startLine)
+    }
+
+    @Test
+    fun `a delete that is turned down changes nothing`() {
+        val s = store()
+        s.create(Draft("a"))
+        assertThrows(StoreException::class.java) { s.delete("T-1") { item, all -> throw StoreException("${item.id} of ${all.size}") } }
+        assertEquals(1, store().items.size)
+        assertEquals("a", s.delete("T-1") { _, _ -> }.title)
+        assertEquals(0, store().items.size)
     }
 }

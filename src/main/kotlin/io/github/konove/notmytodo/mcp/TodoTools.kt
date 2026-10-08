@@ -38,7 +38,7 @@ class TodoTools(private val project: Project) {
     fun list(
         status: String? = null, tags: String? = null, priority: String? = null, path: String? = null,
         withoutTags: String? = null, text: String? = null, compact: Boolean = false, lost: Boolean = false,
-        blocked: Boolean? = null, parent: String? = null, effort: String? = null,
+        blocked: Boolean? = null, parent: String? = null, effort: String? = null, anyText: String? = null,
     ): String {
         val partOf = parent?.takeIf { it.isNotBlank() }?.let(::parseId)
         val statuses = words(status).map(::parseStatus)
@@ -48,8 +48,8 @@ class TodoTools(private val project: Project) {
         val unwanted = Tags.parseList(withoutTags.orEmpty())
         val under = path?.takeIf { it.isNotBlank() }?.let(::directory)
         val needles = words(text)
-        flushAnchors()
-        val all = readable()
+        val anyOf = phrases(anyText)
+        val all = asNow(readable())
         val links = Links(all)
         val found = all.filter { item ->
             (statuses.isEmpty() || item.status in statuses) &&
@@ -60,7 +60,7 @@ class TodoTools(private val project: Project) {
                 (!lost || item.anyLost) &&
                 (blocked == null || links.isBlocked(item) == blocked) &&
                 (partOf == null || item.parent == partOf) &&
-                needles.all { item.title.contains(it, ignoreCase = true) || item.details.contains(it, ignoreCase = true) }
+                needles.all { item.says(it) } && (anyOf.isEmpty() || anyOf.any { item.says(it) })
         }
         // One item per line: pretty printing would triple the size of a list that is meant to be read whole.
         if (compact) return rows(found.map { compactRow(it, links) })
@@ -70,9 +70,8 @@ class TodoTools(private val project: Project) {
         return TodoJson.toText(array)
     }
 
-    fun get(id: String): String {
-        flushAnchors()
-        val item = item(id)
+    fun get(id: String, full: Boolean = false): String {
+        val item = asNow(listOf(item(id))).single()
         fixes(listOf(item))
         val json = encoded(item)
         val links = Links(readable())
@@ -83,13 +82,17 @@ class TodoTools(private val project: Project) {
         // Written in the order of item.anchors.
         val encoded = json.getAsJsonArray("anchors")
         item.anchors.forEachIndexed { index, anchor ->
-            if (anchor.isFile || anchor.lost) return@forEachIndexed
-            service.refresh(anchor.path)
-            val text = runReadActionBlocking { service.readText(anchor.path) } ?: return@forEachIndexed
-            val lines = AnchorResolver.lines(text)
-            if (anchor.endLine <= lines.size) {
-                encoded[index].asJsonObject
-                    .addProperty("code", lines.subList(anchor.startLine - 1, anchor.endLine).joinToString("\n"))
+            if (anchor.isFile) return@forEachIndexed
+            val lines = if (anchor.lost) null else runReadActionBlocking { service.readText(anchor.path) }?.let(AnchorResolver::lines)
+            val code = lines?.takeIf { anchor.endLine <= it.size }?.subList(anchor.startLine - 1, anchor.endLine)?.joinToString("\n")
+            encoded[index].asJsonObject.apply {
+                if (!full) {
+                    // The code says what the stored text says. Without it, the text is the one clue to what the item was attached to.
+                    if (code != null) remove("text")
+                    remove("before")
+                    remove("after")
+                }
+                if (code != null) addProperty("code", code)
             }
         }
         return TodoJson.toText(json)
@@ -158,8 +161,7 @@ class TodoTools(private val project: Project) {
         if (moves && places != null) throw TodoToolError("pass either places or path, startLine and endLine, not both")
         if (places != null) {
             // The places an item has are compared as they are now, unsaved edits included.
-            flushAnchors()
-            val current = item(id).anchors
+            val current = asNow(listOf(item(id))).single().anchors
             // A lost anchor is not kept: its place is passed again to say that the code is there now.
             val wanted = parsePlaces(places).map { place -> current.firstOrNull { place.isAt(it) && !it.lost } ?: buildAnchor(place) }
             return { wanted }
@@ -238,7 +240,7 @@ class TodoTools(private val project: Project) {
             store.batch { batch -> changes.mapIndexed { index, change -> inEntry(index) { storeCall { change(batch) } } } }
         }
         val links = Links(readable())
-        return rows(saved.map { compactRow(it, links) })
+        return rows(asNow(saved).map { compactRow(it, links) })
     }
 
     private fun <T> inEntry(index: Int, block: () -> T): T = try {
@@ -321,6 +323,36 @@ class TodoTools(private val project: Project) {
     }
 
     /**
+     * Deletes an item that the agent made and that no other item refers to: one made to try the tools,
+     * or made by mistake. Anything else is closed, not deleted, so that the user sees what became of it.
+     */
+    fun delete(id: String): String {
+        val gone = storeCall {
+            store.delete(parseId(id)) { item, all ->
+                fun refuse(why: String): Nothing = throw StoreException("${item.id} cannot be deleted: $why")
+                if (item.author != Author.AGENT) {
+                    refuse("it was made by the user, and only the user deletes it. Close it with status \"wont_fix\" and a resolution instead")
+                }
+                val others = all.filter { it.id != item.id }
+                fun ids(items: List<TodoItem>) = items.joinToString(", ") { it.id }
+                others.filter { it.parent == item.id }.takeIf { it.isNotEmpty() }?.let {
+                    refuse("it is the parent of ${ids(it)}. Delete those first, or take them out of it with parent \"\"")
+                }
+                others.filter { item.id in it.blockedBy }.takeIf { it.isNotEmpty() }?.let {
+                    refuse("${ids(it)} ${if (it.size == 1) "is" else "are"} blocked by it. Take that link away first")
+                }
+                others.filter { it.duplicateOf == item.id }.takeIf { it.isNotEmpty() }?.let {
+                    refuse("${ids(it)} ${if (it.size == 1) "is" else "are"} a duplicate of it. Take that link away first")
+                }
+            }
+        }
+        return JsonObject().apply {
+            addProperty("deleted", gone.id)
+            addProperty("title", gone.title)
+        }.toString()
+    }
+
+    /**
      * Records what the user was asked about an item and answered. [decisions] is a JSON array of
      * objects with a question, the options offered, if any, and the answer.
      */
@@ -334,7 +366,9 @@ class TodoTools(private val project: Project) {
         )
         if (entries.isEmpty) throw TodoToolError("decisions is empty: pass at least one object")
         val parsed = entries.mapIndexed { index, entry -> inEntry(index) { decision(entry) } }
-        return reply(storeCall { store.decide(parseId(id), parsed) }, full, listOf("decisions"))
+        val before = item(parseId(id))
+        val saved = storeCall { store.decide(before.id, parsed) }
+        return reply(saved, full, changed(before, saved))
     }
 
     private fun decision(entry: JsonElement): Decision {
@@ -394,12 +428,30 @@ class TodoTools(private val project: Project) {
 
     /**
      * What a tool that changes one item answers: one line that shows the change landed, with the
-     * fields it [changed], since the agent knows the rest of the item. With [full], the whole item.
+     * fields it [changed], since the agent knows the rest of the item. A short field that changed is
+     * shown as it was saved, so that a wrong value is seen without a todo_get. With [full], the whole item.
      */
-    private fun reply(item: TodoItem, full: Boolean, changed: List<String>? = null): String {
+    private fun reply(saved: TodoItem, full: Boolean, changed: List<String>? = null): String {
+        val item = asNow(listOf(saved)).single()
         if (full) return TodoJson.toText(encoded(item))
         val row = compactRow(item, Links(readable()))
-        changed?.let { names -> row.add("changed", JsonArray().also { a -> names.forEach(a::add) }) }
+        changed?.let { names ->
+            for (name in names) {
+                val value = when (name) {
+                    "effort" -> item.effort?.json
+                    "fixedIn" -> item.fixedIn
+                    "source" -> item.source
+                    "parent" -> item.parent
+                    "duplicateOf" -> item.duplicateOf
+                    // Every blocker it was saved with, where the row of a list has only those still in the way.
+                    "blockedBy" -> item.blockedBy.takeIf { it.isNotEmpty() }?.joinToString(" ")
+                    // status, priority and tags are in every row; the long fields are named only.
+                    else -> continue
+                }
+                row.addProperty(name, value)
+            }
+            row.add("changed", JsonArray().also { a -> names.forEach(a::add) })
+        }
         return row.toString()
     }
 
@@ -457,6 +509,14 @@ class TodoTools(private val project: Project) {
     private fun words(value: String?): List<String> =
         value.orEmpty().split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
 
+    /** Words, and phrases written in double quotes, separated by commas or spaces. */
+    private fun phrases(value: String?): List<String> =
+        Regex("\"([^\"]*)\"|[^\\s,\"]+").findAll(value.orEmpty())
+            .map { it.groups[1]?.value?.trim() ?: it.value }.filter { it.isNotEmpty() }.toList()
+
+    private fun TodoItem.says(words: String): Boolean =
+        title.contains(words, ignoreCase = true) || details.contains(words, ignoreCase = true)
+
     /** A file or directory as anchors spell it: forward slashes, relative, no slash at the end. "" is the root. */
     private fun directory(path: String): String =
         path.trim().replace('\\', '/').removePrefix("./").trim('/').let { if (it == ".") "" else it }
@@ -475,11 +535,22 @@ class TodoTools(private val project: Project) {
         return store.items
     }
 
-    /** Writes pending editor line changes to the store so answers reflect unsaved edits. */
-    private fun flushAnchors() {
+    /**
+     * [items] with their anchors as the code is now: the files are read from disk again, since an
+     * agent changes them outside the IDE, and unsaved edits are counted in. Every answer that says
+     * which anchors are lost goes through here, so that two answers in a row agree.
+     */
+    private fun asNow(items: List<TodoItem>): List<TodoItem> {
+        val paths = items.flatMap { it.anchors }.map { it.path }.distinct()
+        if (paths.isNotEmpty()) service.refresh(paths)
         ApplicationManager.getApplication().invokeAndWait {
-            if (!project.isDisposed) project.service<AnchorTracker>().flushAll()
+            if (project.isDisposed) return@invokeAndWait
+            val tracker = project.service<AnchorTracker>()
+            tracker.syncPaths(paths)
+            tracker.flushAll()
         }
+        val now = store.items.associateBy { it.id }
+        return items.map { now[it.id] ?: it }
     }
 
     /** Changes anchors on the event thread, where the tracker keeps its markers. */

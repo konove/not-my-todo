@@ -9,6 +9,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -91,6 +92,13 @@ class TodoService(private val project: Project) : Disposable {
     fun refresh(relativePath: String) {
         val base = project.basePath ?: return
         LocalFileSystem.getInstance().refreshAndFindFileByPath("$base/$relativePath")?.refresh(false, false)
+    }
+
+    /** Brings the IDE's view of several files up to date with the disk, in one go. Do not call inside a read action. */
+    fun refresh(relativePaths: Collection<String>) {
+        val base = project.basePath ?: return
+        val files = relativePaths.mapNotNull { LocalFileSystem.getInstance().refreshAndFindFileByPath("$base/$it") }
+        if (files.isNotEmpty()) VfsUtil.markDirtyAndRefresh(false, false, false, *files.toTypedArray())
     }
 
     fun readText(relativePath: String): String? = runReadActionBlocking {

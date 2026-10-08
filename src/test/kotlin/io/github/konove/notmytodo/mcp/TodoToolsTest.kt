@@ -483,7 +483,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         )
         assertEquals(listOf("MIT", "Apache 2.0"), item.decisions[0].options)
         assertTrue(item.decisions.all { it.time.isNotEmpty() })
-        assertTrue(item.needsDecision)
+        assertFalse(item.needsDecision)
         assertEquals(Status.OPEN, item.status)
         failsWith("JSON array") { tools.decided("T-1", "not json") }
         failsWith("empty") { tools.decided("T-1", "[]") }
@@ -719,6 +719,150 @@ class TodoToolsTest : BasePlatformTestCase() {
             assertEquals("abc1234", store.find("T-3")!!.fixedIn)
         } finally {
             base.resolve(".git").toFile().deleteRecursively()
+        }
+    }
+
+    fun `test decided takes the needs-decision tag away, and toDecide puts it back`() {
+        tools.create("pick a license", null, null, "legal", null, null, null, toDecide = "MIT or Apache?")
+        val row = JsonParser.parseString(tools.decided("T-1", """[{"question": "Which license?", "answer": "MIT"}]""")).asJsonObject
+        assertEquals(listOf("legal"), row.getAsJsonArray("tags").map { it.asString })
+        assertEquals(setOf("tags", "decisions"), row.getAsJsonArray("changed").map { it.asString }.toSet())
+        val item = store.find("T-1")!!
+        assertEquals("MIT or Apache?", item.toDecide)
+        assertEquals(1, item.decisions.size)
+        // The work is then closed without the tags being passed again.
+        tools.update("T-1", null, null, null, null, "fixed")
+        assertEquals(listOf("legal"), store.find("T-1")!!.tags)
+        // One question of several is answered: the item goes on waiting.
+        tools.update("T-1", null, null, null, null, "open", toDecide = "And which year?")
+        assertTrue(store.find("T-1")!!.needsDecision)
+        assertEquals(1, store.find("T-1")!!.decisions.size)
+    }
+
+    fun `test get gives the code of an anchor once, and the stored text of one that is lost`() {
+        val path = service.relativePath(myFixture.configureByText("once.txt", text).virtualFile)!!
+        tools.create("a", null, null, null, path, 2, 3, "$path:4, $path")
+        store.update("T-1") { it.copy(anchors = listOf(it.anchors[0], it.anchors[1].copy(lost = true), it.anchors[2])) }
+        val anchors = JsonParser.parseString(tools.get("T-1")).asJsonObject.getAsJsonArray("anchors").map { it.asJsonObject }
+        assertEquals(setOf("path", "startLine", "endLine", "lost", "code"), anchors[0].keySet())
+        assertEquals("two\nthree", anchors[0].get("code").asString)
+        assertEquals(setOf("path", "startLine", "endLine", "lost", "text"), anchors[1].keySet())
+        assertEquals("four", anchors[1].get("text").asString)
+        assertEquals(setOf("path", "lost"), anchors[2].keySet())
+
+        val full = JsonParser.parseString(tools.get("T-1", full = true)).asJsonObject.getAsJsonArray("anchors").map { it.asJsonObject }
+        assertEquals(setOf("path", "startLine", "endLine", "text", "before", "after", "lost", "code"), full[0].keySet())
+        assertEquals(listOf("one"), full[0].getAsJsonArray("before").map { it.asString })
+    }
+
+    fun `test list finds items that have any of several words or phrases`() {
+        tools.create("Cache the index", null, null, "perf", null, null, null)
+        tools.create("Rework it", "the lookup table is slow", null, null, null, null, null)
+        tools.create("Memoise lookups", null, null, "perf", null, null, null)
+        tools.create("Unrelated", "nothing of the kind", null, null, null, null, null)
+        fun ids(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject.get("id").asString }
+
+        assertEquals(listOf("T-1", "T-2", "T-3"), ids(tools.list(anyText = "cache, MEMOISE \"lookup table\"", compact = true)))
+        assertEquals(listOf("T-2"), ids(tools.list(anyText = "\"lookup table\" \"index cache\"")))
+        assertEquals("[]", tools.list(anyText = "memo-table lookup-cache", compact = true))
+        // With the other filters, all of which must match.
+        assertEquals(listOf("T-1", "T-3"), ids(tools.list(tags = "perf", anyText = "cache lookup")))
+        assertEquals(listOf("T-2"), ids(tools.list(text = "slow", anyText = "cache lookup")))
+        assertEquals(4, ids(tools.list(anyText = " ")).size)
+    }
+
+    fun `test delete removes an item the agent made and nothing else`() {
+        tools.create("made to try the tools", null, null, null, null, null, null)
+        store.create(Draft("the user's own"))
+        tools.create("whole", null, null, null, null, null, null)
+        tools.create("part", null, null, null, null, null, null, parent = "T-3")
+        tools.create("blocker", null, null, null, null, null, null)
+        tools.create("original", null, null, null, null, null, null)
+        store.update("T-2") { it.copy(blockedBy = listOf("T-5"), duplicateOf = "T-6") }
+
+        val row = JsonParser.parseString(tools.delete("t-1")).asJsonObject
+        assertEquals("T-1", row.get("deleted").asString)
+        assertEquals("made to try the tools", row.get("title").asString)
+        assertNull(store.find("T-1"))
+        failsWith("the user") { tools.delete("T-2") }
+        failsWith("T-4") { tools.delete("T-3") }
+        failsWith("blocked by") { tools.delete("T-5") }
+        failsWith("duplicate of") { tools.delete("T-6") }
+        failsWith("T-9") { tools.delete("T-9") }
+        failsWith("not an item id") { tools.delete("nine") }
+        assertEquals(5, store.items.size)
+        // A part goes, and then the whole it was the only part of.
+        tools.delete("T-4")
+        tools.delete("T-3")
+        assertEquals(listOf("T-2", "T-5", "T-6"), store.items.map { it.id })
+        // The next item does not take the id of one that is gone.
+        tools.create("next", null, null, null, null, null, null)
+        assertNotNull(store.find("T-7"))
+    }
+
+    fun `test the one line shows what the short fields that changed became`() {
+        tools.create("a", null, null, null, null, null, null)
+        tools.create("b", null, null, null, null, null, null)
+        tools.update("T-2", null, null, null, null, "done")
+        val row = JsonParser.parseString(
+            tools.update(
+                "T-1", null, "new details", "p1", "perf", "fixed", blockedBy = "T-2", source = "run 7", fixedIn = "abc1234",
+                resolution = "Done.", effort = "s",
+            )
+        ).asJsonObject
+        assertEquals(
+            setOf("details", "priority", "tags", "status", "blockedBy", "source", "fixedIn", "resolution", "effort"),
+            row.getAsJsonArray("changed").map { it.asString }.toSet(),
+        )
+        assertEquals("abc1234", row.get("fixedIn").asString)
+        assertEquals("run 7", row.get("source").asString)
+        // As saved, the blocker that is closed with it.
+        assertEquals("T-2", row.get("blockedBy").asString)
+        assertEquals("s", row.get("effort").asString)
+        assertEquals("p1", row.get("priority").asString)
+        assertFalse(row.has("details"))
+        assertFalse(row.has("resolution"))
+
+        // What did not change is not repeated, and what was taken away is shown as gone.
+        val next = JsonParser.parseString(tools.update("T-1", null, null, null, null, null, blockedBy = "", source = "", effort = "", parent = "T-2")).asJsonObject
+        assertFalse(next.has("fixedIn"))
+        assertTrue(next.get("source").isJsonNull)
+        assertTrue(next.get("effort").isJsonNull)
+        assertTrue(next.get("blockedBy").isJsonNull)
+        assertEquals("T-2", next.get("parent").asString)
+        val last = JsonParser.parseString(tools.update("T-1", null, null, null, null, null, parent = "", duplicateOf = "T-2")).asJsonObject
+        assertTrue(last.get("parent").isJsonNull)
+        assertEquals("T-2", last.get("duplicateOf").asString)
+    }
+
+    fun `test every answer that says lost sees a file rewritten or deleted outside the IDE`() {
+        val base = java.nio.file.Path.of(project.basePath!!)
+        Files.createDirectories(base)
+        val disk = base.resolve("rewritten-outside.txt")
+        val gone = base.resolve("deleted-outside.txt")
+        try {
+            Files.writeString(disk, text)
+            Files.writeString(gone, text)
+            tools.create("first", null, null, null, "rewritten-outside.txt", 2, 2)
+            tools.create("second", null, null, null, "rewritten-outside.txt", 3, 3)
+            tools.create("third", null, null, null, "deleted-outside.txt", 2, 2)
+            Files.writeString(disk, "nothing\nof what was\nhere is left, three aside\nthree\n")
+            val rows = JsonParser.parseString(tools.list(compact = true)).asJsonArray.map { it.asJsonObject }
+            assertTrue(rows[0].get("lost").asBoolean)
+            // What only moved is found where it is now.
+            assertFalse(rows[1].has("lost"))
+            assertEquals("rewritten-outside.txt:4", rows[1].get("at").asString)
+
+            Files.writeString(disk, "all of it gone, and longer than before so that the size differs too\n")
+            assertTrue(JsonParser.parseString(tools.comment("T-2", "a note")).asJsonObject.get("lost").asBoolean)
+            Files.delete(gone)
+            val third = JsonParser.parseString(tools.get("T-3")).asJsonObject.getAsJsonArray("anchors")[0].asJsonObject
+            assertTrue(third.get("lost").asBoolean)
+            assertEquals("two", third.get("text").asString)
+            assertEquals(listOf("T-1", "T-2", "T-3"), JsonParser.parseString(tools.list(lost = true)).asJsonArray.map { it.asJsonObject.get("id").asString })
+        } finally {
+            Files.deleteIfExists(disk)
+            Files.deleteIfExists(gone)
         }
     }
 }

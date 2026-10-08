@@ -164,11 +164,12 @@ class PromptBuilderTest {
         assertTrue(p.contains("give the user the options"))
         assertTrue(p.contains("ask the user to choose and wait for the answer"))
         assertTrue(p.indexOf("Do not change anything yet.") < p.indexOf("When the user has chosen"))
-        assertTrue(p.contains("todo_update tool with id \"T-14\", tags \"perf\" and status \"fixed\""))
+        assertTrue(p.contains("todo_update tool with id \"T-14\" and status \"fixed\""))
+        assertFalse(p.contains("tags \""))
         assertTrue(p.contains("remove the \"needs-decision\" tag and set \"status\": \"fixed\" for this item in notes/todo.json."))
         assertFalse(p.contains("do not guess"))
         val only = PromptBuilder.build(TodoItem("T-3", "pick a license", tags = listOf("needs-decision")), emptyMap(), "")
-        assertTrue(only.contains("id \"T-3\", tags \"\" and status \"fixed\""))
+        assertTrue(only.contains("id \"T-3\" and status \"fixed\""))
     }
 
     @Test

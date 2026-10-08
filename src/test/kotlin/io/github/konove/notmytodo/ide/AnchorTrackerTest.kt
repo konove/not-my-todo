@@ -203,4 +203,42 @@ class AnchorTrackerTest : BasePlatformTestCase() {
         WriteCommandAction.runWriteCommandAction(project) { myFixture.file.virtualFile.delete(this) }
         assertEquals(listOf(true, true), store.find(item.id)!!.anchors.map { it.lost })
     }
+
+    private val far = "a\nb\nc\nd\n$text"
+
+    fun `test lines that only moved are kept in memory until the item is saved for another reason`() {
+        // Far enough below the edit that the lines kept around the anchor stay as they are.
+        val psi = myFixture.configureByText("r.txt", far)
+        val path = service.relativePath(psi.virtualFile)!!
+        val item = store.create(Draft("t", anchors = listOf(AnchorResolver.capture(path, far, 6, 6))))
+        tracker.syncFile(psi.virtualFile)
+        val other = store.create(Draft("other"))
+        val written = Files.readString(store.file)
+        edit { myFixture.editor.document.insertString(0, "zero\n") }
+        assertEquals(7, store.find(item.id)!!.anchor!!.startLine)
+        assertEquals(written, Files.readString(store.file))
+        store.update(other.id) { it.copy(title = "renamed") }
+        assertFalse(Files.readString(store.file).contains("\"startLine\": 7"))
+        store.update(item.id) { it.copy(title = "renamed too") }
+        assertTrue(Files.readString(store.file).contains("\"startLine\": 7"))
+    }
+
+    fun `test a change to the anchored code or to whether it is lost is written`() {
+        val item = openWithItem("s.txt", 2, 2)
+        edit { myFixture.editor.document.insertString(text.indexOf("two") + 3, "!") }
+        assertTrue(Files.readString(store.file).contains("\"text\": \"two!\""))
+        edit { myFixture.editor.document.deleteString(text.indexOf("two"), text.indexOf("three") + 1) }
+        assertTrue(store.find(item.id)!!.anchor!!.lost)
+        assertTrue(Files.readString(store.file).contains("\"lost\": true"))
+    }
+
+    fun `test lines the file has from before the code moved are put right without opening the file`() {
+        val file = myFixture.addFileToProject("t.txt", "zero\n$far").virtualFile
+        val path = service.relativePath(file)!!
+        val item = store.create(Draft("t", anchors = listOf(AnchorResolver.capture(path, far, 6, 6))))
+        val written = Files.readString(store.file)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals(7, store.find(item.id)!!.anchor!!.startLine)
+        assertEquals(written, Files.readString(store.file))
+    }
 }

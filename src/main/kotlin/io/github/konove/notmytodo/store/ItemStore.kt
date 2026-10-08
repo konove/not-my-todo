@@ -41,7 +41,9 @@ data class Draft(
 
 /**
  * Holds the items of one `.todos/items.json`. The file is the source of truth: it is re-read
- * before every change, and written whole after every change.
+   * before every change, and written whole after every change. A change that is only kept in memory,
+ * such as the lines an anchor has moved to, is written when its item is saved for another reason:
+ * the file then does not change with every edit of the code above an anchor.
  */
 class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
     @Volatile
@@ -49,6 +51,9 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         private set
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
     private var data = TodoFile()
+
+    /** The items as the file has them: [data] without the changes that are only kept in memory. */
+    private var saved = TodoFile()
     private var broken: String? = null
     private var loaded = false
     private var diskText: String? = null
@@ -103,8 +108,12 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
 
     fun create(draft: Draft): TodoItem = mutate { created(it, draft) }
 
-    fun update(id: String, touch: Boolean = true, change: (TodoItem) -> TodoItem): TodoItem =
-        mutate { updated(it, id, touch, change) }
+    /**
+     * Changes item [id]. Without [touch] its updated time stays. Without [persist] the change is
+     * kept in memory and written when the item is next saved for another reason.
+     */
+    fun update(id: String, touch: Boolean = true, persist: Boolean = true, change: (TodoItem) -> TodoItem): TodoItem =
+        mutate(persist) { updated(it, id, touch, change) }
 
     /** Makes several changes as one: they are written together or, when one of them fails, not at all. */
     fun <T> batch(changes: (Batch) -> T): T = mutate { f ->
@@ -216,7 +225,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
 
     /**
      * Adds what I was asked and what I answered to the end of the item's decisions, with the time.
-     * Whether the item still waits for me is not changed: that is its tag.
+     * The item no longer waits for me: its [Tags.NEEDS_DECISION] tag goes, and what was to be decided stays.
      */
     fun decide(id: String, decisions: List<Decision>): TodoItem {
         if (decisions.isEmpty()) throw StoreException("there must be at least one decision")
@@ -228,12 +237,17 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             if (answer.isEmpty()) throw StoreException("the answer must not be empty")
             Decision(question, d.options.map { it.trim() }.filter { it.isNotEmpty() }, answer, now)
         }
-        return update(id) { it.copy(decisions = it.decisions + added) }
+        return update(id) { it.copy(decisions = it.decisions + added, tags = it.tags - Tags.NEEDS_DECISION) }
     }
 
-    fun delete(id: String) {
+    /**
+     * Deletes item [id] and returns it. [check] is given the item and all the items there are, and
+     * throws a [StoreException] to turn the delete down.
+     */
+    fun delete(id: String, check: (TodoItem, List<TodoItem>) -> Unit = { _, _ -> }): TodoItem =
         mutate { f ->
-            if (f.items.none { it.id == id }) throw StoreException("there is no item with id $id")
+            val gone = f.items.firstOrNull { it.id == id } ?: throw StoreException("there is no item with id $id")
+            check(gone, f.items)
             // Nothing is left pointing at an item that is gone.
             val left = f.items.filterNot { it.id == id }.map {
                 if (id !in it.blockedBy && it.duplicateOf != id && it.parent != id) it
@@ -243,11 +257,10 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
                     parent = it.parent.takeIf { p -> p != id },
                 )
             }
-            f.copy(items = left) to Unit
+            f.copy(items = left) to gone
         }
-    }
 
-    private fun <T> mutate(block: (TodoFile) -> Pair<TodoFile, T>): T {
+    private fun <T> mutate(persist: Boolean = true, block: (TodoFile) -> Pair<TodoFile, T>): T {
         var changed = false
         try {
             return synchronized(this) {
@@ -255,7 +268,14 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
                 broken?.let { throw StoreException("$file cannot be read: $it") }
                 val (next, result) = block(data)
                 if (next != data) {
-                    write(next)
+                    if (persist) {
+                        // Only what this change touched is written as it is in memory.
+                        val before = data.items.associateBy { it.id }
+                        val onDisk = saved.items.associateBy { it.id }
+                        val out = next.copy(items = next.items.map { if (before[it.id] == it) onDisk[it.id] ?: it else it })
+                        write(out)
+                        saved = out
+                    }
                     data = next
                     changed = true
                 }
@@ -275,6 +295,7 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             val changed = broken != message
             broken = message
             data = TodoFile()
+            saved = TodoFile()
             loaded = false
             return changed
         }
@@ -282,10 +303,16 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
         loaded = true
         diskText = text
         try {
-            data = if (text == null) TodoFile() else TodoJson.decode(text)
+            val read = if (text == null) TodoFile() else TodoJson.decode(text)
+            // An item the file did not change keeps what is only in memory.
+            val was = saved.items.associateBy { it.id }
+            val live = data.items.associateBy { it.id }
+            data = read.copy(items = read.items.map { if (was[it.id] == it) live[it.id] ?: it else it })
+            saved = read
             broken = null
         } catch (e: TodoFormatException) {
             data = TodoFile()
+            saved = TodoFile()
             broken = e.message
         }
         return true
