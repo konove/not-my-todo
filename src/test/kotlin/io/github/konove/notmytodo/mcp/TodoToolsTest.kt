@@ -219,7 +219,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         store.create(Draft("a", details = "keep"))
         tools.comment("T-1", "found the cause")
         store.update("T-1") { it.copy(details = "edited in the IDE") }
-        val json = JsonParser.parseString(tools.comment("T-1", "and a fix")).asJsonObject
+        val json = JsonParser.parseString(tools.comment("T-1", "and a fix", full = true)).asJsonObject
         assertEquals("edited in the IDE", json.get("details").asString)
         val item = store.find("T-1")!!
         assertEquals("edited in the IDE", item.details)
@@ -331,7 +331,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         tools.create("leftover", null, null, null, null, null, null, source = "30c6f6ae..e9ac6245")
         assertEquals("30c6f6ae..e9ac6245", store.find("T-1")!!.source)
         val json = JsonParser.parseString(
-            tools.update("T-1", null, null, null, null, "fixed", fixedIn = "93e7970", resolution = "Cached the path.")
+            tools.update("T-1", null, null, null, null, "fixed", fixedIn = "93e7970", resolution = "Cached the path.", full = true)
         ).asJsonObject
         assertEquals("93e7970", json.get("fixedIn").asString)
         assertEquals("Cached the path.", json.get("resolution").asString)
@@ -434,7 +434,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         failsWith("entry 1") { tools.batch("""[{"details": "no title"}]""") }
         failsWith("titel") { tools.batch("""[{"titel": "typo"}]""") }
         failsWith("status") { tools.batch("""[{"title": "new", "status": "fixed"}]""") }
-        failsWith("todo_update") { tools.batch("""[{"id": "T-1", "places": "a.txt"}]""") }
+        failsWith("no/such.txt") { tools.batch("""[{"id": "T-1", "places": "no/such.txt"}]""") }
         failsWith("entry 1") { tools.batch("""[{"title": 5}]""") }
         failsWith("JSON array") { tools.batch("""{"title": "not in an array"}""") }
         failsWith("JSON array") { tools.batch("not json") }
@@ -448,7 +448,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertEquals("MIT or Apache?", made.toDecide)
         assertEquals(listOf("legal", "needs-decision"), made.tags)
         store.create(Draft("b", tags = listOf("x")))
-        val json = JsonParser.parseString(tools.update("T-2", null, null, null, null, null, toDecide = "Which of the two?")).asJsonObject
+        val json = JsonParser.parseString(tools.update("T-2", null, null, null, null, null, toDecide = "Which of the two?", full = true)).asJsonObject
         assertEquals("Which of the two?", json.get("toDecide").asString)
         assertEquals(listOf("x", "needs-decision"), store.find("T-2")!!.tags)
         // The tag goes when the work is done; what was to be decided stays on the item.
@@ -471,6 +471,7 @@ class TodoToolsTest : BasePlatformTestCase() {
                 "T-1",
                 """[{"question": "Which license?", "options": ["MIT", "Apache 2.0"], "answer": "MIT"},
                     {"question": "Year?", "answer": "2026"}]""",
+                full = true,
             )
         ).asJsonObject
         assertEquals(2, json.getAsJsonArray("decisions").size())
@@ -518,5 +519,197 @@ class TodoToolsTest : BasePlatformTestCase() {
         tools.batch("""[{"id": "T-1", "effort": "m"}, {"title": "b", "effort": "s"}]""")
         assertEquals(Effort.M, store.find("T-1")!!.effort)
         assertEquals(Effort.S, store.find("T-2")!!.effort)
+    }
+
+    fun `test a tool that changes one item answers in one line that names what changed`() {
+        val path = service.relativePath(myFixture.configureByText("short.txt", text).virtualFile)!!
+        val made = tools.create("a", "long details", "p1", "perf", path, 2, 3, effort = "s")
+        assertEquals(1, made.lines().size)
+        val row = JsonParser.parseString(made).asJsonObject
+        assertEquals(setOf("id", "title", "priority", "effort", "status", "tags", "at"), row.keySet())
+        assertEquals("$path:2-3", row.get("at").asString)
+
+        val updated = tools.update("T-1", "b", null, null, null, "fixed", path, 4, null, resolution = "Done.")
+        assertEquals(1, updated.lines().size)
+        val after = JsonParser.parseString(updated).asJsonObject
+        assertEquals(setOf("id", "title", "priority", "effort", "status", "tags", "at", "changed"), after.keySet())
+        assertEquals("b", after.get("title").asString)
+        assertEquals("fixed", after.get("status").asString)
+        assertEquals("$path:4", after.get("at").asString)
+        assertEquals(setOf("title", "status", "resolution", "anchors"), after.getAsJsonArray("changed").map { it.asString }.toSet())
+        // Passing what is there already changes nothing, and the answer says so.
+        assertEquals(0, JsonParser.parseString(tools.update("T-1", "b", null, null, null, null)).asJsonObject.getAsJsonArray("changed").size())
+
+        val commented = JsonParser.parseString(tools.comment("T-1", "a note")).asJsonObject
+        assertEquals(listOf("comments"), commented.getAsJsonArray("changed").map { it.asString })
+        assertFalse(commented.has("comments"))
+        val decided = JsonParser.parseString(tools.decided("T-1", """[{"question": "q", "answer": "a"}]""")).asJsonObject
+        assertEquals(listOf("decisions"), decided.getAsJsonArray("changed").map { it.asString })
+        assertFalse(decided.has("details"))
+
+        store.update("T-1") { it.copy(anchors = listOf(it.anchor!!.copy(lost = true))) }
+        assertTrue(JsonParser.parseString(tools.comment("T-1", "gone")).asJsonObject.get("lost").asBoolean)
+    }
+
+    fun `test full gives the whole item back`() {
+        val path = service.relativePath(myFixture.configureByText("full.txt", text).virtualFile)!!
+        val made = JsonParser.parseString(tools.create("a", "the details", null, null, path, 2, 2, full = true)).asJsonObject
+        assertEquals("the details", made.get("details").asString)
+        assertEquals("two", made.getAsJsonArray("anchors")[0].asJsonObject.get("text").asString)
+        val updated = JsonParser.parseString(tools.update("T-1", "b", null, null, null, null, full = true)).asJsonObject
+        assertEquals("the details", updated.get("details").asString)
+        assertFalse(updated.has("changed"))
+        assertEquals(1, JsonParser.parseString(tools.comment("T-1", "note", full = true)).asJsonObject.getAsJsonArray("comments").size())
+        val decided = JsonParser.parseString(tools.decided("T-1", """[{"question": "q", "answer": "a"}]""", full = true)).asJsonObject
+        assertEquals(1, decided.getAsJsonArray("decisions").size())
+    }
+
+    fun `test a place passed again finds a lost anchor`() {
+        val a = service.relativePath(myFixture.configureByText("lost1.txt", text).virtualFile)!!
+        val b = service.relativePath(myFixture.configureByText("lost2.txt", text).virtualFile)!!
+        tools.create("x", null, null, null, a, 2, 2, "$b:1")
+        fun lose() = store.update("T-1") { it.copy(anchors = listOf(it.anchors[0].copy(text = "was two", lost = true), it.anchors[1])) }
+        val kept = lose().anchors[1]
+
+        val row = JsonParser.parseString(tools.update("T-1", null, null, null, null, null, places = "$a:2, $b:1")).asJsonObject
+        assertFalse(row.has("lost"))
+        assertEquals(listOf("anchors"), row.getAsJsonArray("changed").map { it.asString })
+        val found = store.find("T-1")!!.anchors
+        assertFalse(found[0].lost)
+        assertEquals("two", found[0].text)
+        assertEquals(kept, found[1])
+
+        lose()
+        tools.update("T-1", null, null, null, null, null, a, 2, null)
+        assertFalse(store.find("T-1")!!.anchors[0].lost)
+        assertEquals("two", store.find("T-1")!!.anchors[0].text)
+        assertEquals(kept, store.find("T-1")!!.anchors[1])
+
+        lose()
+        tools.batch("""[{"id": "T-1", "places": "$a:2, $b:1"}]""")
+        assertFalse(store.find("T-1")!!.anyLost)
+    }
+
+    fun `test batch re-attaches items as todo_update does`() {
+        val a = service.relativePath(myFixture.configureByText("re1.txt", text).virtualFile)!!
+        val b = service.relativePath(myFixture.configureByText("re2.txt", text).virtualFile)!!
+        tools.create("one place", null, null, null, a, 1, 1)
+        tools.create("two places", null, null, null, a, 2, 2, "$b:1")
+        tools.create("whole file", null, null, null, a, null, null)
+        tools.create("note", null, null, null, null, null, null)
+        var writes = 0
+        val listener = { writes++; Unit }
+        store.addListener(listener)
+        val rows = JsonParser.parseString(
+            tools.batch(
+                """[{"id": "T-1", "startLine": 3, "endLine": 4, "tags": "moved"},
+                    {"id": "T-2", "path": "$b", "startLine": 2},
+                    {"id": "T-3", "places": ["$b:4", "$a"]},
+                    {"id": "T-4", "path": "$b", "status": "fixed"}]"""
+            )
+        ).asJsonArray.map { it.asJsonObject }
+        store.removeListener(listener)
+        assertEquals(1, writes)
+        assertEquals("$a:3-4", rows[0].get("at").asString)
+        assertEquals("three\nfour", store.find("T-1")!!.anchor!!.text)
+        assertEquals(listOf("moved"), store.find("T-1")!!.tags)
+        assertEquals(listOf("$a:2", "$b:2"), store.find("T-2")!!.anchors.map { it.place })
+        assertEquals(listOf("$b:4", a), store.find("T-3")!!.anchors.map { it.place })
+        assertEquals(listOf(b), store.find("T-4")!!.anchors.map { it.place })
+        assertEquals(Status.FIXED, store.find("T-4")!!.status)
+        tools.batch("""[{"id": "T-3", "places": ""}]""")
+        assertTrue(store.find("T-3")!!.anchors.isEmpty())
+
+        val before = Files.readString(store.file)
+        failsWith("entry 2: lines 9-9") { tools.batch("""[{"id": "T-1", "startLine": 1}, {"id": "T-4", "startLine": 9}]""") }
+        failsWith("entry 2: file not found") { tools.batch("""[{"id": "T-1", "title": "new"}, {"id": "T-1", "path": "no/such.txt"}]""") }
+        failsWith("not both") { tools.batch("""[{"id": "T-1", "startLine": 1, "places": "$a:1"}]""") }
+        failsWith("2 places") { tools.batch("""[{"id": "T-2", "startLine": 1}]""") }
+        failsWith("places") { tools.batch("""[{"id": "T-2", "path": "other.txt", "startLine": 1}]""") }
+        failsWith("startLine must be a whole number") { tools.batch("""[{"id": "T-1", "startLine": "3"}]""") }
+        assertEquals(before, Files.readString(store.file))
+    }
+
+    fun `test new items of a batch name each other by their refs`() {
+        store.create(Draft("there already"))
+        val d = "$"
+        val rows = JsonParser.parseString(
+            tools.batch(
+                """[{"title": "whole", "ref": "whole"},
+                    {"title": "first part", "ref": "first", "parent": "${d}whole"},
+                    {"title": "second part", "parent": "${d}whole", "blockedBy": "${d}first, T-1"},
+                    {"title": "said twice", "ref": "again-2", "duplicateOf": "${d}first", "blockedBy": ["${d}whole"]},
+                    {"id": "T-1", "blockedBy": "${d}again-2", "parent": "${d}whole"}]"""
+            )
+        ).asJsonArray.map { it.asJsonObject }
+        assertEquals(listOf("T-2", "T-3", "T-4", "T-5", "T-1"), rows.map { it.get("id").asString })
+        assertFalse(rows[0].has("ref"))
+        assertEquals("T-2", store.find("T-3")!!.parent)
+        assertEquals("T-2", store.find("T-4")!!.parent)
+        assertEquals(listOf("T-3", "T-1"), store.find("T-4")!!.blockedBy)
+        assertEquals("T-3", store.find("T-5")!!.duplicateOf)
+        assertEquals(listOf("T-2"), store.find("T-5")!!.blockedBy)
+        assertEquals(listOf("T-5"), store.find("T-1")!!.blockedBy)
+        assertEquals("T-2", store.find("T-1")!!.parent)
+
+        val before = Files.readString(store.file)
+        failsWith("entry 2: there is no new item with ref \"hole\"") {
+            tools.batch("""[{"title": "w", "ref": "whole"}, {"title": "p", "parent": "${d}hole"}]""")
+        }
+        // A ref names an entry before the one that uses it.
+        failsWith("entry 1: there is no new item with ref \"later\"") {
+            tools.batch("""[{"title": "p", "blockedBy": "${d}later"}, {"title": "w", "ref": "later"}]""")
+        }
+        failsWith("entry 1: there is no new item with ref \"x\"") { tools.batch("""[{"id": "T-1", "duplicateOf": "${d}x"}]""") }
+        failsWith("entry 2: ref \"w\" is already") { tools.batch("""[{"title": "a", "ref": "w"}, {"title": "b", "ref": "w"}]""") }
+        failsWith("entry 1: ref must be a name") { tools.batch("""[{"title": "a", "ref": "two words"}]""") }
+        failsWith("entry 1: ref is for a new item") { tools.batch("""[{"id": "T-1", "ref": "one"}]""") }
+        failsWith("entry 2") { tools.batch("""[{"title": "a", "ref": "a", "parent": "T-2"}, {"title": "deep", "parent": "${d}a"}]""") }
+        assertEquals(before, Files.readString(store.file))
+    }
+
+    fun `test the commit that names a closed item is shown as the one that fixed it`() {
+        val base = java.nio.file.Path.of(project.basePath!!)
+        Files.createDirectories(base)
+        fun git(vararg args: String): String? = try {
+            val process = ProcessBuilder(listOf("git", "-c", "user.name=t", "-c", "user.email=t@example.com") + args)
+                .directory(base.toFile()).redirectErrorStream(true).start()
+            val out = process.inputStream.bufferedReader().readText()
+            if (process.waitFor() == 0) out.trim() else null
+        } catch (_: java.io.IOException) {
+            null
+        }
+        // Without git on this machine there is nothing to read from.
+        if (git("init") == null) return
+        try {
+            store.create(Draft("named in a commit"))
+            store.create(Draft("named and still open"))
+            store.create(Draft("says so itself"))
+            store.create(Draft("never named"))
+            git("commit", "--allow-empty", "-m", "Fix T-1: first try")!!
+            git("commit", "--allow-empty", "-m", "Cache the path\n\nFixes T-1 and T-3, starts T-2. Not T-10.")!!
+            val head = git("rev-parse", "--short", "HEAD")!!
+            tools.batch(
+                """[{"id": "T-1", "status": "fixed"}, {"id": "T-3", "status": "done", "fixedIn": "abc1234"}, {"id": "T-4", "status": "fixed"}]"""
+            )
+            fun fixedIn(id: String) = JsonParser.parseString(tools.get(id)).asJsonObject.get("fixedIn")?.asString
+            assertEquals(head, fixedIn("T-1"))
+            assertNull(fixedIn("T-2"))
+            assertEquals("abc1234", fixedIn("T-3"))
+            assertNull(fixedIn("T-4"))
+            val listed = JsonParser.parseString(tools.list()).asJsonArray.map { it.asJsonObject.get("fixedIn")?.asString }
+            assertEquals(listOf(head, null, "abc1234", null), listed)
+            assertEquals(head, JsonParser.parseString(tools.update("T-1", "renamed", null, null, null, null, full = true)).asJsonObject.get("fixedIn").asString)
+            // It is read from git each time and never written to the file.
+            assertNull(store.find("T-1")!!.fixedIn)
+            assertFalse(Files.readString(store.file).contains(head))
+
+            git("commit", "--allow-empty", "-m", "T-4 at last")!!
+            assertEquals(git("rev-parse", "--short", "HEAD"), fixedIn("T-4"))
+            tools.update("T-1", null, null, null, null, "open")
+            assertNull(fixedIn("T-1"))
+        } finally {
+            base.resolve(".git").toFile().deleteRecursively()
+        }
     }
 }

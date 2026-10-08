@@ -39,6 +39,7 @@ import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.WrapLayout
 import io.github.konove.notmytodo.ide.AnchorTracker
 import io.github.konove.notmytodo.ide.CodeTodos
+import io.github.konove.notmytodo.ide.FixCommits
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
@@ -457,7 +458,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
 
     /** Shows the read-only rows or the fields, whichever [editing] asks for. */
     private fun showMode() {
-        val item = current
+        val item = current?.let { project.service<FixCommits>().shown(it) }
         viewRows.forEach { it.visible(!editing) }
         editRows.forEach { it.visible(editing) }
         viewLinksRow.visible(!editing && viewLinks.iterator().hasNext())
@@ -506,7 +507,10 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val anchor = item.anchors.getOrNull(anchorIndex)
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
-        val text = ItemText.html(item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
+        val fixes = project.service<FixCommits>()
+        val text = ItemText.html(fixes.shown(item), grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
+        // The commit that fixed it is looked up in the background and shown when it is found.
+        if (fixes.derives(item)) fixes.refreshLater { if (current === item) show(item) }
         if (text != shownDetails) {
             shownDetails = text
             viewDetails.text = text

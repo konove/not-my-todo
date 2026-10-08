@@ -21,7 +21,8 @@ data class PromptOptions(
 /** Builds the text handed to an agent for one item. The files are the text of each anchored file, by its path. */
 object PromptBuilder {
     private const val RESOLUTION =
-        "Pass a resolution too, which says in a sentence or two what you did, and fixedIn, the id of the commit, if you committed the work. "
+        "Pass a resolution too, which says in a sentence or two what you did. If you commit the work, do it after this call and name " +
+            "the item id in the commit message: that commit is then shown as the one that fixed it, and fixedIn need not be passed. "
 
     fun build(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions = PromptOptions()): String =
         one(item, files, doneWhen, options, options.extra)

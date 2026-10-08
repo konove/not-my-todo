@@ -76,10 +76,10 @@ With the IDE's MCP server enabled, these tools are available:
 | `todo_list` | List items, filtered by status, tags to have or not have, priority, effort, file or directory, text, `blocked` and `parent`; `compact` leaves out details |
 | `todo_get` | One item with its current line range and code |
 | `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, with the `source` commit or run it came from, with an `effort` of `s`, `m` or `l`, and with `toDecide` when you have to decide something first |
-| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` and `fixedIn` say what was done and in which commit; `toDecide` says what you have to decide and tags the item `needs-decision` |
+| `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` says what was done, and the commit that names the item id in its message is shown as the one that fixed it, unless `fixedIn` names another; `toDecide` says what you have to decide and tags the item `needs-decision` |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
 | `todo_decided` | Record what you were asked about an item and what you answered: each question, the options offered and the answer |
-| `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none; `comment` on an entry adds a comment to that item |
+| `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none; `comment` on an entry adds a comment to that item, `path`, `startLine` and `places` re-attach it, and `ref` on a new item lets the entries after it name it as `$ref` |
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of
 the plugin's last write.

@@ -11,6 +11,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.ide.AnchorTracker
+import io.github.konove.notmytodo.ide.FixCommits
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
@@ -63,6 +64,7 @@ class TodoTools(private val project: Project) {
         }
         // One item per line: pretty printing would triple the size of a list that is meant to be read whole.
         if (compact) return rows(found.map { compactRow(it, links) })
+        fixes(found)
         val array = JsonArray()
         found.forEach { array.add(summary(it, links)) }
         return TodoJson.toText(array)
@@ -71,7 +73,8 @@ class TodoTools(private val project: Project) {
     fun get(id: String): String {
         flushAnchors()
         val item = item(id)
-        val json = TodoJson.encodeItem(item)
+        fixes(listOf(item))
+        val json = encoded(item)
         val links = Links(readable())
         if (links.isBlocked(item)) json.addProperty("blocked", true)
         links.children(id).takeIf { it.isNotEmpty() }?.let { parts ->
@@ -96,11 +99,10 @@ class TodoTools(private val project: Project) {
         title: String, details: String?, priority: String?, tags: String?,
         path: String?, startLine: Int?, endLine: Int?, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null, source: String? = null,
-        toDecide: String? = null, effort: String? = null,
+        toDecide: String? = null, effort: String? = null, full: Boolean = false,
     ): String {
-        return TodoJson.toText(TodoJson.encodeItem(storeCall {
-            store.create(draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide, effort))
-        }))
+        val draft = draft(title, details, priority, tags, path, startLine, endLine, places, blockedBy, duplicateOf, parent, source, toDecide, effort)
+        return reply(storeCall { store.create(draft) }, full)
     }
 
     private fun draft(
@@ -115,13 +117,19 @@ class TodoTools(private val project: Project) {
         }
         val first = path?.let { buildAnchor(Place(filePath(it), startLine, endLine)) }
         val anchors = (listOfNotNull(first) + parsePlaces(places).map(::buildAnchor)).distinctBy(Anchor::place)
-        return Draft(
+        val draft = Draft(
             title, details.orEmpty(), parsedPriority, waiting(Tags.parseList(tags.orEmpty()), toDecide), Author.AGENT, anchors,
-            parseIds(blockedBy.orEmpty()), duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
-            parent?.takeIf { it.isNotBlank() }?.let(::parseId), source, toDecide,
-            effort?.takeIf { it.isNotBlank() }?.let(::parseEffort),
+            source = source, toDecide = toDecide, effort = effort?.takeIf { it.isNotBlank() }?.let(::parseEffort),
         )
+        return linked(draft, blockedBy, duplicateOf, parent)
     }
+
+    /** The [draft] with its links to other items, each given as a tool takes it. */
+    private fun linked(draft: Draft, blockedBy: String?, duplicateOf: String?, parent: String?): Draft = draft.copy(
+        blockedBy = parseIds(blockedBy.orEmpty()),
+        duplicateOf = duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
+        parent = parent?.takeIf { it.isNotBlank() }?.let(::parseId),
+    )
 
     /** The [tags] of an item that is told what is [toDecide]: it waits for the user from then on. */
     private fun waiting(tags: List<String>, toDecide: String?): List<String> =
@@ -132,42 +140,54 @@ class TodoTools(private val project: Project) {
         path: String? = null, startLine: Int? = null, endLine: Int? = null, places: String? = null,
         blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
         source: String? = null, fixedIn: String? = null, resolution: String? = null, toDecide: String? = null,
-        effort: String? = null,
+        effort: String? = null, full: Boolean = false,
     ): String {
         val edit = edit(title, details, priority, tags, status, blockedBy, duplicateOf, parent, source, fixedIn, resolution, toDecide, effort)
+        val before = item(id)
+        placed(id, path, startLine, endLine, places)?.let { anchors -> onTracker { it.change(id, anchors) } }
+        val saved = storeCall { store.update(id, change = edit) }
+        return reply(saved, full, changed(before, saved))
+    }
+
+    /**
+     * What path, startLine and endLine, or places, do to the anchors of item [id]: null when none of
+     * them is passed. The files are read here, so a place that is wrong is found before anything is saved.
+     */
+    private fun placed(id: String, path: String?, startLine: Int?, endLine: Int?, places: String?): ((List<Anchor>) -> List<Anchor>)? {
         val moves = path != null || startLine != null || endLine != null
         if (moves && places != null) throw TodoToolError("pass either places or path, startLine and endLine, not both")
         if (places != null) {
             // The places an item has are compared as they are now, unsaved edits included.
             flushAnchors()
             val current = item(id).anchors
-            val wanted = parsePlaces(places).map { place -> current.firstOrNull(place::isAt) ?: buildAnchor(place) }
-            onTracker { it.change(id) { wanted } }
-        } else if (moves) {
-            val current = item(id).anchors
-            val file = path?.let(::filePath)
-            val index = when {
-                current.size < 2 -> 0
-                file == null -> throw TodoToolError(
-                    "$id is attached to ${current.size} places: give path to say which one moves, or places to set them all"
-                )
-                else -> current.indices.singleOrNull { current[it].path == file } ?: throw TodoToolError(
-                    "$id does not have exactly one place in $file: pass places to set the whole list of places"
-                )
-            }
-            val anchorPath = file ?: current.firstOrNull()?.path
-                ?: throw TodoToolError("path is required to attach $id to code: it is a plain note")
-            val anchor = buildAnchor(Place(anchorPath, startLine, endLine))
-            onTracker { it.attach(id, anchor, index) }
+            // A lost anchor is not kept: its place is passed again to say that the code is there now.
+            val wanted = parsePlaces(places).map { place -> current.firstOrNull { place.isAt(it) && !it.lost } ?: buildAnchor(place) }
+            return { wanted }
         }
-        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.update(id, change = edit) }))
+        if (!moves) return null
+        val current = item(id).anchors
+        val file = path?.let(::filePath)
+        val index = when {
+            current.size < 2 -> 0
+            file == null -> throw TodoToolError(
+                "$id is attached to ${current.size} places: give path to say which one moves, or places to set them all"
+            )
+            else -> current.indices.singleOrNull { current[it].path == file } ?: throw TodoToolError(
+                "$id does not have exactly one place in $file: pass places to set the whole list of places"
+            )
+        }
+        val anchorPath = file ?: current.firstOrNull()?.path
+            ?: throw TodoToolError("path is required to attach $id to code: it is a plain note")
+        // Built anew even when the lines are the ones it has, which finds a lost anchor again.
+        val anchor = buildAnchor(Place(anchorPath, startLine, endLine))
+        return { anchors -> if (index in anchors.indices) anchors.mapIndexed { i, old -> if (i == index) anchor else old } else anchors + anchor }
     }
 
     /** The change that the fields passed to an update make to an item. Fields left out stay as they are. */
     private fun edit(
-        title: String?, details: String?, priority: String?, tags: String?, status: String?,
-        blockedBy: String?, duplicateOf: String?, parent: String?,
-        source: String?, fixedIn: String?, resolution: String?, toDecide: String?, effort: String?,
+        title: String? = null, details: String? = null, priority: String? = null, tags: String? = null, status: String? = null,
+        blockedBy: String? = null, duplicateOf: String? = null, parent: String? = null,
+        source: String? = null, fixedIn: String? = null, resolution: String? = null, toDecide: String? = null, effort: String? = null,
     ): (TodoItem) -> TodoItem {
         // An empty text takes the link away; a text left out leaves it as it is.
         val blockers = blockedBy?.let(::parseIds)
@@ -200,6 +220,7 @@ class TodoTools(private val project: Project) {
     /**
      * Creates and updates several items as one change. [items] is a JSON array of objects: one with
      * an id changes that item, one without is a new item. Nothing is saved when an entry is wrong.
+     * A new item may carry a ref, and the entries after it name it as `$ref` where they take an id.
      */
     fun batch(items: String): String {
         val entries = try {
@@ -209,7 +230,8 @@ class TodoTools(private val project: Project) {
         } ?: throw TodoToolError("items must be a JSON array of objects, for example [{\"title\": \"...\"}, {\"id\": \"T-3\", \"tags\": \"...\"}]")
         if (entries.isEmpty) throw TodoToolError("items is empty: pass at least one object")
         // Every entry is read before the first is saved, and the files of new items with it.
-        val changes = entries.mapIndexed { index, entry -> inEntry(index) { change(entry) } }
+        val refs = HashMap<String, String>()
+        val changes = entries.mapIndexed { index, entry -> inEntry(index) { change(entry, refs) } }
         val saved = storeCall {
             store.batch { batch -> changes.mapIndexed { index, change -> inEntry(index) { storeCall { change(batch) } } } }
         }
@@ -223,7 +245,8 @@ class TodoTools(private val project: Project) {
         throw TodoToolError("entry ${index + 1}: ${e.message}")
     }
 
-    private fun change(entry: JsonElement): (ItemStore.Batch) -> TodoItem {
+    /** The change one entry of a batch makes. [refs] are the ids of the new items made so far, by their ref. */
+    private fun change(entry: JsonElement, refs: MutableMap<String, String>): (ItemStore.Batch) -> TodoItem {
         if (!entry.isJsonObject) throw TodoToolError("must be a JSON object")
         val o = entry.asJsonObject
         val updates = o.has("id")
@@ -231,7 +254,7 @@ class TodoTools(private val project: Project) {
         o.keySet().firstOrNull { it !in known }?.let { field ->
             throw TodoToolError(
                 when {
-                    updates && field in PLACE_FIELDS -> "$field cannot be changed in a batch: re-attach the item with todo_update"
+                    updates && field == "ref" -> "ref is for a new item: an item that is there is named by its id"
                     !updates && field in UPDATE_FIELDS -> "$field cannot be set on a new item: leave it out, or give an id to change an item"
                     else -> "unknown field $field: ${if (updates) "an item to change" else "a new item"} takes ${known.joinToString(", ")}"
                 }
@@ -250,36 +273,56 @@ class TodoTools(private val project: Project) {
             value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asString?.toIntOrNull()
                 ?: throw TodoToolError("$field must be a whole number")
         }
+        // The links are read when the entry is applied: only then do the new items before it have ids.
+        val blockedBy = text("blockedBy")
+        val duplicateOf = text("duplicateOf")
+        val parent = text("parent")
+        fun resolved(link: String?): String? = link?.replace(REF) { match ->
+            refs[match.groupValues[1]] ?: throw TodoToolError("there is no new item with ref \"${match.groupValues[1]}\" before this entry")
+        }
         if (updates) {
             val id = parseId(text("id") ?: throw TodoToolError("id must be a text"))
             val edit = edit(
-                text("title"), text("details"), text("priority"), text("tags"), text("status"), text("blockedBy"),
-                text("duplicateOf"), text("parent"), text("source"), text("fixedIn"), text("resolution"), text("toDecide"),
-                text("effort"),
+                text("title"), text("details"), text("priority"), text("tags"), text("status"),
+                source = text("source"), fixedIn = text("fixedIn"), resolution = text("resolution"), toDecide = text("toDecide"),
+                effort = text("effort"),
             )
+            val anchors = placed(id, text("path"), line("startLine"), line("endLine"), text("places"))
             // In a batch, what the agent has to say about an item goes with the change, in the same write.
             val comment = text("comment")
             if (comment != null && comment.isBlank()) throw TodoToolError("comment must not be empty")
-            return { batch -> batch.update(id, edit).let { if (comment == null) it else batch.comment(id, Author.AGENT, comment) } }
+            return { batch ->
+                val links = edit(blockedBy = resolved(blockedBy), duplicateOf = resolved(duplicateOf), parent = resolved(parent))
+                // The tracker drops the marker of an anchor that is no longer the one in the store, so none is dropped here.
+                val saved = batch.update(id) { old ->
+                    links(edit(old)).let { if (anchors == null) it else it.copy(anchors = anchors(it.anchors).distinctBy(Anchor::place)) }
+                }
+                if (comment == null) saved else batch.comment(id, Author.AGENT, comment)
+            }
         }
+        val ref = text("ref")
+        if (ref != null && !REF_NAME.matches(ref)) throw TodoToolError("ref must be a name made of letters, digits, - and _")
         val draft = draft(
             text("title") ?: throw TodoToolError("title is required for a new item"), text("details"), text("priority"),
             text("tags"), text("path"), line("startLine"), line("endLine"), text("places"),
-            text("blockedBy"), text("duplicateOf"), text("parent"), text("source"), text("toDecide"), text("effort"),
+            null, null, null, text("source"), text("toDecide"), text("effort"),
         )
-        return { it.create(draft) }
+        return { batch ->
+            if (ref != null && ref in refs) throw TodoToolError("ref \"$ref\" is already the name of an entry before this one")
+            batch.create(linked(draft, resolved(blockedBy), resolved(duplicateOf), resolved(parent))).also { if (ref != null) refs[ref] = it.id }
+        }
     }
 
-    fun comment(id: String, text: String): String {
+    fun comment(id: String, text: String, full: Boolean = false): String {
         if (text.isBlank()) throw TodoToolError("text must not be empty")
-        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.comment(id, Author.AGENT, text) }))
+        return reply(storeCall { store.comment(id, Author.AGENT, text) }, full, listOf("comments"))
     }
 
     /**
      * Records what the user was asked about an item and answered. [decisions] is a JSON array of
      * objects with a question, the options offered, if any, and the answer.
      */
-    fun decided(id: String, decisions: String): String {
+    fun decided(id: String, decisions: String, full: Boolean = false): String {
         val entries = try {
             JsonParser.parseString(decisions).takeIf { it.isJsonArray }?.asJsonArray
         } catch (_: JsonParseException) {
@@ -289,7 +332,7 @@ class TodoTools(private val project: Project) {
         )
         if (entries.isEmpty) throw TodoToolError("decisions is empty: pass at least one object")
         val parsed = entries.mapIndexed { index, entry -> inEntry(index) { decision(entry) } }
-        return TodoJson.toText(TodoJson.encodeItem(storeCall { store.decide(parseId(id), parsed) }))
+        return reply(storeCall { store.decide(parseId(id), parsed) }, full, listOf("decisions"))
     }
 
     private fun decision(entry: JsonElement): Decision {
@@ -347,8 +390,35 @@ class TodoTools(private val project: Project) {
         return AnchorResolver.capture(path, text, start, end)
     }
 
+    /**
+     * What a tool that changes one item answers: one line that shows the change landed, with the
+     * fields it [changed], since the agent knows the rest of the item. With [full], the whole item.
+     */
+    private fun reply(item: TodoItem, full: Boolean, changed: List<String>? = null): String {
+        if (full) return TodoJson.toText(encoded(item))
+        val row = compactRow(item, Links(readable()))
+        changed?.let { names -> row.add("changed", JsonArray().also { a -> names.forEach(a::add) }) }
+        return row.toString()
+    }
+
+    /** The fields of an item that differ between [before] and [after], by their names in its JSON. */
+    private fun changed(before: TodoItem, after: TodoItem): List<String> {
+        val was = TodoJson.encodeItem(before)
+        val now = TodoJson.encodeItem(after)
+        return (was.keySet() + now.keySet()).filter { it != "updated" && was.get(it) != now.get(it) }
+    }
+
+    /** An item as JSON, with the commit that fixed it when git knows it and the item does not say. */
+    private fun encoded(item: TodoItem): JsonObject = TodoJson.encodeItem(project.service<FixCommits>().shown(item))
+
+    /** Asks git which commits fixed [items], when one of them is closed without saying so itself. */
+    private fun fixes(items: List<TodoItem>) {
+        val commits = project.service<FixCommits>()
+        if (items.any(commits::derives)) commits.refresh()
+    }
+
     private fun summary(item: TodoItem, links: Links): JsonObject {
-        val json = TodoJson.encodeItem(item)
+        val json = encoded(item)
         if (links.isBlocked(item)) json.addProperty("blocked", true)
         json.getAsJsonArray("anchors")?.forEach {
             it.asJsonObject.apply {
@@ -452,10 +522,11 @@ class TodoTools(private val project: Project) {
         val LIST_FIELDS = setOf("tags", "blockedBy", "places")
         val DECISION_FIELDS = setOf("question", "options", "answer")
         val CREATE_FIELDS = setOf("title", "details", "priority", "tags") + PLACE_FIELDS +
-            setOf("blockedBy", "duplicateOf", "parent", "source", "toDecide", "effort")
-        val UPDATE_FIELDS = setOf(
-            "id", "title", "details", "priority", "tags", "status", "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution",
-            "toDecide", "effort", "comment",
+            setOf("blockedBy", "duplicateOf", "parent", "source", "toDecide", "effort", "ref")
+        val UPDATE_FIELDS = setOf("id", "title", "details", "priority", "tags", "status") + PLACE_FIELDS + setOf(
+            "blockedBy", "duplicateOf", "parent", "source", "fixedIn", "resolution", "toDecide", "effort", "comment",
         )
+        val REF_NAME = Regex("[A-Za-z0-9_-]+")
+        val REF = Regex("\\$(${REF_NAME.pattern})")
     }
 }
