@@ -39,13 +39,31 @@ data class Draft(
     val effort: Effort? = null,
 )
 
+/** A status that is shown and not yet written: [to] in place of [from], which the file has, set at the time [updated]. */
+data class Hold(val from: Status, val to: Status, val updated: String)
+
+/** Keeps the holds of a store beyond its life, so that they are there when the IDE is started again. */
+interface HoldKeeper {
+    fun load(): Map<String, Hold>
+
+    fun save(holds: Map<String, Hold>)
+
+    /** Keeps nothing: the holds last as long as the store. */
+    object None : HoldKeeper {
+        override fun load(): Map<String, Hold> = emptyMap()
+
+        override fun save(holds: Map<String, Hold>) {}
+    }
+}
+
 /**
  * Holds the items of one `.todos/items.json`. The file is the source of truth: it is re-read
    * before every change, and written whole after every change. A change that is only kept in memory,
  * such as the lines an anchor has moved to, is written when its item is saved for another reason:
- * the file then does not change with every edit of the code above an anchor.
+ * the file then does not change with every edit of the code above an anchor. A status that is held
+ * (see [hold]) is written with the next change to the file, whichever item that change is to.
  */
-class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
+class ItemStore(file: Path, private val keeper: HoldKeeper = HoldKeeper.None, private val clock: () -> Instant = Instant::now) {
     @Volatile
     var file: Path = file
         private set
@@ -54,6 +72,9 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
 
     /** The items as the file has them: [data] without the changes that are only kept in memory. */
     private var saved = TodoFile()
+
+    /** The statuses that wait for the next write, by item id. [data] has them, [saved] does not. */
+    private var held: Map<String, Hold> = keeper.load()
     private var broken: String? = null
     private var loaded = false
     private var diskText: String? = null
@@ -91,6 +112,12 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
     fun moveTo(newFile: Path, move: Boolean = false) {
         synchronized(this) {
             if (newFile == file) return
+            // A hold is on an item of this file, and is not taken to another.
+            if (held.isNotEmpty() && broken == null) {
+                write(data)
+                saved = data
+                keep(emptyMap())
+            }
             if (move && Files.exists(file) && !Files.exists(newFile)) {
                 try {
                     Files.createDirectories(newFile.parent)
@@ -114,6 +141,32 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
      */
     fun update(id: String, touch: Boolean = true, persist: Boolean = true, change: (TodoItem) -> TodoItem): TodoItem =
         mutate(persist) { updated(it, id, touch, change) }
+
+    /**
+     * Sets the status of item [id] without writing it: it is shown from now on, here and when the
+     * IDE is started again, and written with the next change to the file. So accepting a fix that is
+     * already committed does not leave the file changed on its own. When the file brings the item
+     * another status before that, the file is right and the hold is dropped.
+     */
+    fun hold(id: String, status: Status): TodoItem = mutate(persist = false) { f ->
+        val (next, item) = updated(f, id, true) { it.copy(status = status) }
+        val onDisk = saved.items.first { it.id == id }
+        if (onDisk.status == status) {
+            // Set back to what the file says: nothing is left to write.
+            keep(held - id)
+            val back = item.copy(updated = onDisk.updated)
+            next.copy(items = next.items.map { if (it.id == id) back else it }) to back
+        } else {
+            keep(held + (id to Hold(onDisk.status, status, item.updated)))
+            next to item
+        }
+    }
+
+    private fun keep(holds: Map<String, Hold>) {
+        if (holds == held) return
+        held = holds
+        keeper.save(holds)
+    }
 
     /** Makes several changes as one: they are written together or, when one of them fails, not at all. */
     fun <T> batch(changes: (Batch) -> T): T = mutate { f ->
@@ -269,12 +322,13 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
                 val (next, result) = block(data)
                 if (next != data) {
                     if (persist) {
-                        // Only what this change touched is written as it is in memory.
+                        // Only what this change touched, and what is held for the next write, is written as it is in memory.
                         val before = data.items.associateBy { it.id }
                         val onDisk = saved.items.associateBy { it.id }
-                        val out = next.copy(items = next.items.map { if (before[it.id] == it) onDisk[it.id] ?: it else it })
+                        val out = next.copy(items = next.items.map { if (before[it.id] == it && it.id !in held) onDisk[it.id] ?: it else it })
                         write(out)
                         saved = out
+                        keep(emptyMap())
                     }
                     data = next
                     changed = true
@@ -307,8 +361,14 @@ class ItemStore(file: Path, private val clock: () -> Instant = Instant::now) {
             // An item the file did not change keeps what is only in memory.
             val was = saved.items.associateBy { it.id }
             val live = data.items.associateBy { it.id }
-            data = read.copy(items = read.items.map { if (was[it.id] == it) live[it.id] ?: it else it })
+            // A hold stays while the file has the status it was made on.
+            val holds = held.filter { (id, hold) -> read.items.any { it.id == id && it.status == hold.from } }
+            data = read.copy(items = read.items.map { item ->
+                val now = if (was[item.id] == item) live[item.id] ?: item else item
+                holds[item.id]?.let { now.copy(status = it.to, updated = it.updated) } ?: now
+            })
             saved = read
+            keep(holds)
             broken = null
         } catch (e: TodoFormatException) {
             data = TodoFile()

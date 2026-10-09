@@ -67,6 +67,14 @@ name another file for the project. Commit it or add `.todos/` to `.gitignore`;
 the plugin does not decide for you. IDs are `T-1`, `T-2`, ... and are never
 reused.
 
+Accepting a fix does not change the file on its own: the fix is usually
+committed by then, with the item as `fixed`, and a change of one word would
+ask for a commit of its own. The item is shown as done at once, in the panel
+and to the MCP tools, and `done` is written with the next change to the file,
+whichever item it is to. Until then the IDE remembers it in its workspace
+file, and the items file still says `fixed`. A Done you set on your own work
+is written straight away, to go into your commit.
+
 ## For agents
 
 With the IDE's MCP server enabled, these tools are available:
@@ -84,7 +92,8 @@ With the IDE's MCP server enabled, these tools are available:
 
 Without MCP, read `.todos/items.json` directly. Line numbers there are as of
 the last time that item was saved: lines that only moved are not written, so
-find the code by the anchor's `text`.
+find the code by the anchor's `text`. An item that says `fixed` there may
+already be accepted: see Data.
 
 ## Build
 

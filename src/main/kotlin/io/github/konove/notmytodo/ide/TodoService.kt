@@ -28,7 +28,7 @@ class TodoService(private val project: Project) : Disposable {
     /** The project root, which the items file path is relative to. */
     val base: Path get() = Path.of(project.basePath ?: System.getProperty("java.io.tmpdir"))
 
-    val store = ItemStore(configuredFile())
+    val store = ItemStore(configuredFile(), keeper = project.service<HeldStatuses>())
 
     init {
         project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {

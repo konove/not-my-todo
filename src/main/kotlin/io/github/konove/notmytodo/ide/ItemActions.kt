@@ -40,7 +40,9 @@ object ItemActions {
             if (open > 0 && Messages.showYesNoDialog(project, "$id still has $parts. Close it anyway?", "Not My TODO", null) != Messages.YES) return
         }
         try {
-            store.update(id) { it.copy(status = status) }
+            // Accepting a fix follows the commit that has it, and would leave the items file changed on its own.
+            if (status == Status.DONE && store.find(id)?.status == Status.FIXED) store.hold(id, status)
+            else store.update(id) { it.copy(status = status) }
         } catch (e: StoreException) {
             Messages.showErrorDialog(project, e.message, "Not My TODO")
         }

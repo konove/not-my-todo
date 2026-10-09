@@ -404,6 +404,107 @@ class ItemStoreTest {
         assertEquals(5, s.find("T-2")!!.anchor!!.startLine)
     }
 
+    /** Keeps holds as the workspace file does: beyond the life of one store. */
+    private class Keeper : HoldKeeper {
+        var kept: Map<String, Hold> = emptyMap()
+        override fun load(): Map<String, Hold> = kept
+        override fun save(holds: Map<String, Hold>) {
+            kept = holds
+        }
+    }
+
+    private fun statuses(s: ItemStore) = s.items.map { it.status }
+
+    @Test
+    fun `a held status is shown at once and written with the next change to the file`() {
+        val keeper = Keeper()
+        val s = ItemStore(file, keeper) { now }
+        s.create(Draft("a"))
+        s.create(Draft("b"))
+        s.update("T-1") { it.copy(status = Status.FIXED) }
+        val written = Files.readString(file)
+        var fired = 0
+        s.addListener { fired++ }
+        now = now.plusSeconds(60)
+
+        val held = s.hold("T-1", Status.DONE)
+        assertEquals(Status.DONE, held.status)
+        assertEquals("2026-10-05T10:01:00Z", held.updated)
+        assertEquals(1, fired)
+        assertEquals(written, Files.readString(file))
+        assertEquals(mapOf("T-1" to Hold(Status.FIXED, Status.DONE, "2026-10-05T10:01:00Z")), keeper.kept)
+        // The IDE is started again: the file says fixed, and the item is shown as done.
+        assertEquals(listOf(Status.DONE, Status.OPEN), statuses(ItemStore(file, keeper) { now }))
+        assertEquals(listOf(Status.FIXED, Status.OPEN), statuses(store()))
+
+        now = now.plusSeconds(60)
+        s.update("T-2") { it.copy(title = "renamed") }
+        val read = store()
+        assertEquals(listOf(Status.DONE, Status.OPEN), statuses(read))
+        // The time is when it was accepted, not when it was written.
+        assertEquals("2026-10-05T10:01:00Z", read.find("T-1")!!.updated)
+        assertEquals(emptyMap<String, Hold>(), keeper.kept)
+    }
+
+    @Test
+    fun `a held status gives way when the file brings another, and outlasts other changes to it`() {
+        val keeper = Keeper()
+        val s = ItemStore(file, keeper) { now }
+        s.create(Draft("a"))
+        s.create(Draft("b"))
+        s.batch { b -> listOf("T-1", "T-2").forEach { id -> b.update(id) { it.copy(status = Status.FIXED) } } }
+        s.hold("T-1", Status.DONE)
+        s.hold("T-2", Status.DONE)
+
+        // From another branch: the first is given a new title, the second is opened again.
+        Files.writeString(
+            file, Files.readString(file).replace("\"title\": \"a\"", "\"title\": \"renamed\"").replaceLast("\"fixed\"", "\"open\""),
+        )
+        assertTrue(s.reload())
+        assertEquals("renamed", s.find("T-1")!!.title)
+        assertEquals(listOf(Status.DONE, Status.OPEN), statuses(s))
+        assertEquals(setOf("T-1"), keeper.kept.keys)
+
+        // The file catches up by itself, or loses the item: nothing is left to write.
+        Files.writeString(file, Files.readString(file).replace("\"fixed\"", "\"done\""))
+        s.reload()
+        assertEquals(emptyMap<String, Hold>(), keeper.kept)
+        assertEquals(listOf(Status.DONE, Status.OPEN), statuses(s))
+    }
+
+    private fun String.replaceLast(old: String, new: String): String =
+        lastIndexOf(old).let { replaceRange(it, it + old.length, new) }
+
+    @Test
+    fun `a held status that is set back leaves nothing to write`() {
+        val keeper = Keeper()
+        val s = ItemStore(file, keeper) { now }
+        s.create(Draft("a"))
+        s.create(Draft("b"))
+        s.update("T-1") { it.copy(status = Status.FIXED) }
+        val before = s.find("T-1")!!
+        now = now.plusSeconds(60)
+        s.hold("T-1", Status.DONE)
+        s.hold("T-1", Status.FIXED)
+        assertEquals(before, s.find("T-1"))
+        assertEquals(emptyMap<String, Hold>(), keeper.kept)
+        s.update("T-2") { it.copy(title = "renamed") }
+        assertEquals(before, store().find("T-1"))
+        assertThrows(StoreException::class.java) { s.hold("T-9", Status.DONE) }
+    }
+
+    @Test
+    fun `held statuses are written before the store turns to another file`() {
+        val keeper = Keeper()
+        val s = ItemStore(file, keeper) { now }
+        s.create(Draft("a"))
+        s.update("T-1") { it.copy(status = Status.FIXED) }
+        s.hold("T-1", Status.DONE)
+        s.moveTo(dir.resolve("other.json"))
+        assertEquals(emptyMap<String, Hold>(), keeper.kept)
+        assertEquals(listOf(Status.DONE), statuses(store()))
+    }
+
     @Test
     fun `a delete that is turned down changes nothing`() {
         val s = store()

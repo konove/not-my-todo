@@ -1,8 +1,10 @@
 package io.github.konove.notmytodo.ide
 
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.settings.TodoProjectSettings
+import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.store.Draft
 import io.github.konove.notmytodo.store.StoreException
 import java.nio.file.Files
@@ -24,6 +26,25 @@ class TodoServiceTest : BasePlatformTestCase() {
         } finally {
             super.tearDown()
         }
+    }
+
+    fun `test accepting a fix is kept out of the items file until it is next written`() {
+        val store = service.store
+        store.create(Draft("fixed by an agent"))
+        store.create(Draft("my own"))
+        store.update("T-1") { it.copy(status = Status.FIXED) }
+        val committed = Files.readString(store.file)
+
+        ItemActions.setStatus(project, "T-1", Status.DONE)
+        assertEquals(Status.DONE, store.find("T-1")!!.status)
+        assertEquals(committed, Files.readString(store.file))
+        assertEquals(setOf("T-1"), project.service<HeldStatuses>().load().keys)
+
+        // What I close myself goes into the file, to be committed with my work, and takes the other along.
+        ItemActions.setStatus(project, "T-2", Status.DONE)
+        val text = Files.readString(store.file)
+        assertEquals(2, Regex("\"status\": \"done\"").findAll(text).count())
+        assertTrue(project.service<HeldStatuses>().load().isEmpty())
     }
 
     fun `test the items file can be moved and the setting follows`() {
