@@ -327,7 +327,7 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
     }
 
-    fun `test a parent says how many of its parts are still open`() {
+    fun `test a parent says how many of its parts are open, fixed and closed`() {
         tools.create("whole", null, null, null, null, null, null)
         tools.create("first", null, null, null, null, null, null, parent = "T-1")
         tools.create("second", null, null, null, null, null, null, parent = "T-1")
@@ -336,24 +336,35 @@ class TodoToolsTest : BasePlatformTestCase() {
         fun rows(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject }
         fun got(id: String) = JsonParser.parseString(tools.get(id)).asJsonObject
 
-        assertEquals("3/3 open", rows(tools.list(compact = true))[0].get("parts").asString)
-        assertEquals("3/3 open", got("T-1").get("parts").asString)
+        // All open: a part in progress is open too. A group that counts none is left out.
+        tools.update("T-2", null, null, null, null, "in_progress")
+        assertEquals("3 open", rows(tools.list(compact = true))[0].get("parts").asString)
+        assertEquals("3 open", got("T-1").get("parts").asString)
         // Only an item that has parts says so.
         assertFalse(rows(tools.list(compact = true)).drop(1).any { it.has("parts") })
         assertFalse(got("T-2").has("parts"))
         assertFalse(got("T-5").has("parts"))
 
-        // Fixed is not closed yet: the user has still to look at it.
+        // A mix of the three: fixed is told apart from open, and from closed, as the user has still to look at it.
         tools.update("T-2", null, null, null, null, "fixed")
         tools.update("T-3", null, null, null, null, "done")
-        assertEquals("2/3 open", rows(tools.list(compact = true))[0].get("parts").asString)
-        assertEquals("2/3 open", JsonParser.parseString(tools.comment("T-1", "a note")).asJsonObject.get("parts").asString)
-        assertEquals("2/3 open", JsonParser.parseString(tools.update("T-1", "the whole", null, null, null, null)).asJsonObject.get("parts").asString)
+        assertEquals("1 open, 1 fixed, 1 closed", rows(tools.list(compact = true))[0].get("parts").asString)
+        assertEquals("1 open, 1 fixed, 1 closed", got("T-1").get("parts").asString)
+        assertEquals("1 open, 1 fixed, 1 closed", JsonParser.parseString(tools.comment("T-1", "a note")).asJsonObject.get("parts").asString)
+        assertEquals("1 open, 1 fixed, 1 closed", JsonParser.parseString(tools.update("T-1", "the whole", null, null, null, null)).asJsonObject.get("parts").asString)
 
-        val batch = rows(tools.batch("""[{"id": "T-2", "status": "wont_fix"}, {"id": "T-4", "status": "done"}, {"id": "T-1", "priority": "p1"}]"""))
-        assertFalse(batch[0].has("parts"))
-        assertEquals("0/3 open", batch[2].get("parts").asString)
-        assertEquals("0/3 open", got("T-1").get("parts").asString)
+        // All fixed, which is when the parent itself can be set to fixed. A batch says how it is after the whole of it.
+        val fixed = rows(tools.batch("""[{"id": "T-1", "priority": "p1"}, {"id": "T-3", "status": "fixed"}, {"id": "T-4", "status": "fixed"}]"""))
+        assertEquals("3 fixed", fixed[0].get("parts").asString)
+        assertFalse(fixed[1].has("parts"))
+        assertEquals("3 fixed", rows(tools.list(compact = true))[0].get("parts").asString)
+        assertEquals("3 fixed", got("T-1").get("parts").asString)
+
+        // All closed, done or wont_fix.
+        val closed = rows(tools.batch("""[{"id": "T-2", "status": "wont_fix"}, {"id": "T-3", "status": "done"}, {"id": "T-4", "status": "done"}, {"id": "T-1", "priority": "p2"}]"""))
+        assertEquals("3 closed", closed[3].get("parts").asString)
+        assertEquals("3 closed", rows(tools.list(compact = true))[0].get("parts").asString)
+        assertEquals("3 closed", got("T-1").get("parts").asString)
         // The parent is not closed for the agent.
         assertEquals(Status.OPEN, store.find("T-1")!!.status)
     }

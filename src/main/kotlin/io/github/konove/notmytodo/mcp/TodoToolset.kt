@@ -21,8 +21,9 @@ class TodoToolset : McpToolset {
             "within a priority, the least effort. Pass lost=true after moving or rewriting code " +
             "to find the items that need re-attaching: the files are read from disk again for every answer, so lost is as the code is now. Pass blocked=false to find the items that can be worked on now. Pass compact=true to survey many items, " +
             "for example to check for a duplicate before todo_create; with anyText one call looks for it under every name it may have. " +
-            "In a compact line, an item that has parts says how many of them are still open as parts, for example \"2/5 open\": " +
-            "at \"0/5 open\" it is time to close the parent yourself, which is never closed for you."
+            "In a compact line, an item that has parts says how many of them are open, fixed and closed as parts, for example \"2 open, 2 fixed, 1 closed\", " +
+            "leaving out a group that counts none: at \"3 fixed, 2 closed\", with none open, the parent itself can be set to fixed, and at \"5 closed\" " +
+            "it is time to close the parent yourself, which is never closed for you."
     )
     suspend fun todo_list(
         @McpDescription("Only items with one of these statuses, separated by commas or spaces: open, in_progress, fixed, done, wont_fix") status: String? = null,
@@ -31,7 +32,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Only items with an anchor in this file or anywhere under this directory, as a path relative to the project root") path: String? = null,
         @McpDescription("Leave out items that have any of these tags, separated by commas or spaces") withoutTags: String? = null,
         @McpDescription("Only items whose title or details contain every one of these words, in any case") text: String? = null,
-        @McpDescription("One line per item with id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor), and for an item that has parts, parts: how many of them are not done or wont_fix, for example \"2/5 open\"; no details") compact: Boolean = false,
+        @McpDescription("One line per item with id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor), and for an item that has parts, parts: how many of them are open (open or in_progress), fixed and closed (done or wont_fix), for example \"2 open, 2 fixed, 1 closed\", without a group that counts none; no details") compact: Boolean = false,
         @McpDescription("Only items with a lost anchor: the code or file they were attached to can no longer be found. Re-attach them with todo_update") lost: Boolean = false,
         @McpDescription("true for only blocked items, false for only items that are not blocked. An item is blocked while one it is blocked by is not done or wont_fix") blocked: Boolean? = null,
         @McpDescription("Only the parts of this item: the items that have it as their parent") parent: String? = null,
@@ -47,8 +48,8 @@ class TodoToolset : McpToolset {
             "Pass full=true for the text and the lines before and after it as they are stored, for every anchor. " +
             "toDecide is what the user has to decide, and decisions what the user was asked and answered. " +
             "Its links to other items are blockedBy, duplicateOf and parent; blocked is true while a blocker is still open, " +
-            "and children lists the items that have this one as their parent, with parts saying how many of them are still open, " +
-            "for example \"2/5 open\", counting those that are not done or wont_fix. A parent is not closed when its parts are: close it yourself."
+            "and children lists the items that have this one as their parent, with parts saying how many of them are open (open or in_progress), fixed and closed (done or wont_fix), " +
+            "for example \"2 open, 2 fixed, 1 closed\", without a group that counts none. A parent is not closed when its parts are: close it yourself."
     )
     suspend fun todo_get(
         @McpDescription("Item id, for example T-12") id: String,
@@ -91,7 +92,7 @@ class TodoToolset : McpToolset {
             "an item is attached to, pass startLine (and path, if the file changed) to re-attach it; for an item attached to " +
             "several places, path says which one moves. Pass places to set the whole list of places instead. Set status to \"fixed\" when you " +
             "have finished the work so the user can review it, or to \"wont_fix\" to close it without a change; either way pass " +
-            "resolution to say what you did or why. When you commit the work, name the item id in the commit message, for example " +
+            "resolution to say what you did or why. A parent whose parts show none open, for example \"3 fixed, 2 closed\", can itself be set to \"fixed\". When you commit the work, name the item id in the commit message, for example " +
             "\"Fix T-12: ...\": that commit is then shown as the one that fixed the item, with nothing to record after it. " +
             "Pass fixedIn only for a commit whose message does not name the item. " +
             "When an item says what another already says, set duplicateOf to that other item and status to \"wont_fix\". " +
@@ -150,8 +151,8 @@ class TodoToolset : McpToolset {
             "name the new item, written \"\$ref\" (a \$ and the name), in parent, blockedBy and duplicateOf. So one call files a whole item and its parts. " +
             "The entries are applied in order, and when one is wrong none is saved " +
             "and the error names it. Returns one line per entry with the id, title, priority, effort, status and tags of the item as saved, " +
-            "which for a new item is how you learn its id, and for an item that has parts with parts, how many of them are still open " +
-            "after the whole batch, for example \"0/5 open\"."
+            "which for a new item is how you learn its id, and for an item that has parts with parts, how many of them are open, fixed and closed " +
+            "after the whole batch, for example \"3 fixed, 2 closed\"."
     )
     suspend fun todo_batch(
         @McpDescription(

@@ -78,7 +78,7 @@ class TodoTools(private val project: Project) {
         if (links.isBlocked(item)) json.addProperty("blocked", true)
         links.children(id).takeIf { it.isNotEmpty() }?.let { parts ->
             json.add("children", JsonArray().also { a -> parts.forEach { a.add(it.id) } })
-            json.addProperty("parts", openOf(parts))
+            json.addProperty("parts", countsOf(parts))
         }
         // Written in the order of item.anchors.
         val encoded = json.getAsJsonArray("anchors")
@@ -516,12 +516,20 @@ class TodoTools(private val project: Project) {
         }
         item.duplicateOf?.let { json.addProperty("duplicateOf", it) }
         item.parent?.let { json.addProperty("parent", it) }
-        links.children(item.id).takeIf { it.isNotEmpty() }?.let { json.addProperty("parts", openOf(it)) }
+        links.children(item.id).takeIf { it.isNotEmpty() }?.let { json.addProperty("parts", countsOf(it)) }
         return json
     }
 
-    /** How many of the [parts] of an item are still open, which tells when the item itself can be closed. */
-    private fun openOf(parts: List<TodoItem>): String = "${parts.count { !it.isClosed }}/${parts.size} open"
+    /**
+     * How many of the [parts] of an item are open, fixed and closed, leaving out a group that counts none: with none
+     * open the item itself can be set to fixed, and with all closed it can be closed.
+     */
+    private fun countsOf(parts: List<TodoItem>): String {
+        val closed = parts.count { it.isClosed }
+        val fixed = parts.count { it.status == Status.FIXED }
+        return listOf(parts.size - fixed - closed to "open", fixed to "fixed", closed to "closed")
+            .filter { it.first > 0 }.joinToString { "${it.first} ${it.second}" }
+    }
 
     private fun rows(rows: List<JsonObject>): String =
         if (rows.isEmpty()) "[]" else rows.joinToString(",\n", "[\n", "\n]") { it.toString() }
