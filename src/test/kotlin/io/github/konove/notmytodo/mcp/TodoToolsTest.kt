@@ -327,6 +327,37 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
     }
 
+    fun `test a parent says how many of its parts are still open`() {
+        tools.create("whole", null, null, null, null, null, null)
+        tools.create("first", null, null, null, null, null, null, parent = "T-1")
+        tools.create("second", null, null, null, null, null, null, parent = "T-1")
+        tools.create("third", null, null, null, null, null, null, parent = "T-1")
+        tools.create("on its own", null, null, null, null, null, null)
+        fun rows(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject }
+        fun got(id: String) = JsonParser.parseString(tools.get(id)).asJsonObject
+
+        assertEquals("3/3 open", rows(tools.list(compact = true))[0].get("parts").asString)
+        assertEquals("3/3 open", got("T-1").get("parts").asString)
+        // Only an item that has parts says so.
+        assertFalse(rows(tools.list(compact = true)).drop(1).any { it.has("parts") })
+        assertFalse(got("T-2").has("parts"))
+        assertFalse(got("T-5").has("parts"))
+
+        // Fixed is not closed yet: the user has still to look at it.
+        tools.update("T-2", null, null, null, null, "fixed")
+        tools.update("T-3", null, null, null, null, "done")
+        assertEquals("2/3 open", rows(tools.list(compact = true))[0].get("parts").asString)
+        assertEquals("2/3 open", JsonParser.parseString(tools.comment("T-1", "a note")).asJsonObject.get("parts").asString)
+        assertEquals("2/3 open", JsonParser.parseString(tools.update("T-1", "the whole", null, null, null, null)).asJsonObject.get("parts").asString)
+
+        val batch = rows(tools.batch("""[{"id": "T-2", "status": "wont_fix"}, {"id": "T-4", "status": "done"}, {"id": "T-1", "priority": "p1"}]"""))
+        assertFalse(batch[0].has("parts"))
+        assertEquals("0/3 open", batch[2].get("parts").asString)
+        assertEquals("0/3 open", got("T-1").get("parts").asString)
+        // The parent is not closed for the agent.
+        assertEquals(Status.OPEN, store.find("T-1")!!.status)
+    }
+
     fun `test source, commit and resolution are set, kept and taken away`() {
         tools.create("leftover", null, null, null, null, null, null, source = "30c6f6ae..e9ac6245")
         assertEquals("30c6f6ae..e9ac6245", store.find("T-1")!!.source)
@@ -717,6 +748,27 @@ class TodoToolsTest : BasePlatformTestCase() {
             assertEquals("no-such-branch", store.find("T-3")!!.fixedIn)
             tools.update("T-3", null, null, null, null, null, fixedIn = "abc1234")
             assertEquals("abc1234", store.find("T-3")!!.fixedIn)
+
+            // source is stored the same way: a name, and each end of a range, as the commit it stands for at the time.
+            val newest = git("rev-parse", "--short", "HEAD")!!
+            val branch = git("rev-parse", "--abbrev-ref", "HEAD")!!
+            tools.create("left behind", null, null, null, null, null, null, source = "HEAD~1..HEAD")
+            assertEquals("$head..$newest", store.find("T-5")!!.source)
+            val row = JsonParser.parseString(tools.update("T-5", null, null, null, null, null, source = branch)).asJsonObject
+            assertEquals(newest, row.get("source").asString)
+            assertEquals(newest, store.find("T-5")!!.source)
+            tools.batch(
+                """[{"id": "T-5", "source": "abc1234..HEAD"}, {"title": "in words", "source": "the nightly run of 7 October"},
+                    |{"title": "one end unknown", "source": "no-such-branch..HEAD~1"}, {"title": "an id", "source": "30c6f6ae..e9ac6245"},
+                    |{"title": "three dots", "source": "HEAD~1...HEAD"}]""".trimMargin()
+            )
+            assertEquals("abc1234..$newest", store.find("T-5")!!.source)
+            assertEquals("the nightly run of 7 October", store.find("T-6")!!.source)
+            assertEquals("no-such-branch..$head", store.find("T-7")!!.source)
+            assertEquals("30c6f6ae..e9ac6245", store.find("T-8")!!.source)
+            assertEquals("$head...$newest", store.find("T-9")!!.source)
+            tools.update("T-5", null, null, null, null, null, source = "")
+            assertNull(store.find("T-5")!!.source)
         } finally {
             base.resolve(".git").toFile().deleteRecursively()
         }

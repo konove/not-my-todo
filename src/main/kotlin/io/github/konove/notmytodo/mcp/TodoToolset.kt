@@ -20,7 +20,9 @@ class TodoToolset : McpToolset {
             "current line range but not the code; use todo_get for the code. To choose what to work on next, take the highest priority first and, " +
             "within a priority, the least effort. Pass lost=true after moving or rewriting code " +
             "to find the items that need re-attaching: the files are read from disk again for every answer, so lost is as the code is now. Pass blocked=false to find the items that can be worked on now. Pass compact=true to survey many items, " +
-            "for example to check for a duplicate before todo_create; with anyText one call looks for it under every name it may have."
+            "for example to check for a duplicate before todo_create; with anyText one call looks for it under every name it may have. " +
+            "In a compact line, an item that has parts says how many of them are still open as parts, for example \"2/5 open\": " +
+            "at \"0/5 open\" it is time to close the parent yourself, which is never closed for you."
     )
     suspend fun todo_list(
         @McpDescription("Only items with one of these statuses, separated by commas or spaces: open, in_progress, fixed, done, wont_fix") status: String? = null,
@@ -29,7 +31,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Only items with an anchor in this file or anywhere under this directory, as a path relative to the project root") path: String? = null,
         @McpDescription("Leave out items that have any of these tags, separated by commas or spaces") withoutTags: String? = null,
         @McpDescription("Only items whose title or details contain every one of these words, in any case") text: String? = null,
-        @McpDescription("One line per item with id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor); no details") compact: Boolean = false,
+        @McpDescription("One line per item with id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor), and for an item that has parts, parts: how many of them are not done or wont_fix, for example \"2/5 open\"; no details") compact: Boolean = false,
         @McpDescription("Only items with a lost anchor: the code or file they were attached to can no longer be found. Re-attach them with todo_update") lost: Boolean = false,
         @McpDescription("true for only blocked items, false for only items that are not blocked. An item is blocked while one it is blocked by is not done or wont_fix") blocked: Boolean? = null,
         @McpDescription("Only the parts of this item: the items that have it as their parent") parent: String? = null,
@@ -45,7 +47,8 @@ class TodoToolset : McpToolset {
             "Pass full=true for the text and the lines before and after it as they are stored, for every anchor. " +
             "toDecide is what the user has to decide, and decisions what the user was asked and answered. " +
             "Its links to other items are blockedBy, duplicateOf and parent; blocked is true while a blocker is still open, " +
-            "and children lists the items that have this one as their parent."
+            "and children lists the items that have this one as their parent, with parts saying how many of them are still open, " +
+            "for example \"2/5 open\", counting those that are not done or wont_fix. A parent is not closed when its parts are: close it yourself."
     )
     suspend fun todo_get(
         @McpDescription("Item id, for example T-12") id: String,
@@ -59,7 +62,7 @@ class TodoToolset : McpToolset {
             "Give places to attach it to several places. Leave them all out for a plain note. When you add several items that belong " +
             "together, create one item for the whole first and give its id as parent to the others, or file them all in one todo_batch. " +
             "Returns one line with the id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor) of the item as saved, " +
-            "and lost when an anchor is lost; pass full=true for the whole item as JSON."
+            "lost when an anchor is lost, and parts when it has parts, as todo_list compact=true shows it; pass full=true for the whole item as JSON."
     )
     suspend fun todo_create(
         @McpDescription("Short description of what needs doing") title: String,
@@ -73,7 +76,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Ids of the items that must be closed before this one can be worked on, separated by commas or spaces") blockedBy: String? = null,
         @McpDescription("Id of the item that already says what this one says") duplicateOf: String? = null,
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own") parent: String? = null,
-        @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind, for example 30c6f6ae..e9ac6245. Put it here and not in details") source: String? = null,
+        @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind, for example 30c6f6ae..e9ac6245. HEAD, or another name git knows, is stored as the id of the commit it names now, and so is each end of a range such as HEAD~3..HEAD. Put it here and not in details") source: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided") toDecide: String? = null,
         @McpDescription("Your rough guess at how much work it is: s for under an hour, m for a few hours, l for a day or more. Pass it whenever you can tell") effort: String? = null,
         @McpDescription("true to get the whole item back as JSON, as todo_get with full=true gives it but without the code. Leave it out: you know the item, and the one line shows that the change landed") full: Boolean = false,
@@ -93,7 +96,7 @@ class TodoToolset : McpToolset {
             "Pass fixedIn only for a commit whose message does not name the item. " +
             "When an item says what another already says, set duplicateOf to that other item and status to \"wont_fix\". " +
             "Returns one line with the id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor) of the item as saved, " +
-            "and lost when an anchor is lost, and changed, the names of the fields that changed. Of those, fixedIn, source, effort, parent, duplicateOf and blockedBy " +
+            "lost when an anchor is lost, and parts when it has parts, as todo_list compact=true shows it, and changed, the names of the fields that changed. Of those, fixedIn, source, effort, parent, duplicateOf and blockedBy " +
             "are shown as saved, null when taken away, as status, priority and tags always are: check them there, without a todo_get. Pass full=true for the whole item as JSON."
     )
     suspend fun todo_update(
@@ -110,7 +113,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Ids of the items that must be closed before this one can be worked on, separated by commas or spaces, replacing the ones it has. Pass an empty text to unblock it") blockedBy: String? = null,
         @McpDescription("Id of the item that already says what this one says. Pass an empty text to take the link away") duplicateOf: String? = null,
         @McpDescription("Id of the item this one is a part of. A parent cannot have a parent of its own. Pass an empty text to take it out of its parent") parent: String? = null,
-        @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind. Pass an empty text to take it away") source: String? = null,
+        @McpDescription("Where the item comes from: the commit, the range of commits or the run that left it behind. HEAD, or another name git knows, is stored as the id of the commit it names now, and so is each end of a range such as HEAD~3..HEAD. Pass an empty text to take it away") source: String? = null,
         @McpDescription("Id of the commit that fixed the item. Leave it out when the commit message names the item id: the commit is then read from git, and a fixedIn you pass is shown in its place. HEAD, or another name git knows, is stored as the id of the commit it names now. Pass an empty text to take it away") fixedIn: String? = null,
         @McpDescription("What you did to fix the item, or why it is closed without a change, as Markdown in a sentence or two. Pass an empty text to take it away") resolution: String? = null,
         @McpDescription("What the user has to decide before this can be fixed, as Markdown. Passing it tags the item needs-decision, so that no agent fixes it before the user has decided. Pass an empty text to take it away") toDecide: String? = null,
@@ -128,7 +131,7 @@ class TodoToolset : McpToolset {
             "the item's comments with your authorship and the time, and nothing else on the item is changed, so " +
             "prefer it to rewriting details with todo_update. " +
             "Returns one line with the id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor) of the item as saved, " +
-            "and lost when an anchor is lost; pass full=true for the whole item as JSON."
+            "lost when an anchor is lost, and parts when it has parts, as todo_list compact=true shows it; pass full=true for the whole item as JSON."
     )
     suspend fun todo_comment(
         @McpDescription("Item id, for example T-12") id: String,
@@ -147,7 +150,8 @@ class TodoToolset : McpToolset {
             "name the new item, written \"\$ref\" (a \$ and the name), in parent, blockedBy and duplicateOf. So one call files a whole item and its parts. " +
             "The entries are applied in order, and when one is wrong none is saved " +
             "and the error names it. Returns one line per entry with the id, title, priority, effort, status and tags of the item as saved, " +
-            "which for a new item is how you learn its id."
+            "which for a new item is how you learn its id, and for an item that has parts with parts, how many of them are still open " +
+            "after the whole batch, for example \"0/5 open\"."
     )
     suspend fun todo_batch(
         @McpDescription(
@@ -168,7 +172,7 @@ class TodoToolset : McpToolset {
             "When the user answered only some of the questions, pass what is still open as toDecide to todo_update, which makes the item wait again. " +
             "The status is not changed. " +
             "Returns one line with the id, title, priority, effort, status, tags and \"at\" (path:lines of each anchor) of the item as saved, " +
-            "and lost when an anchor is lost, and changed, the names of the fields that changed; pass full=true for the whole item as JSON."
+            "lost when an anchor is lost, and parts when it has parts, as todo_list compact=true shows it, and changed, the names of the fields that changed; pass full=true for the whole item as JSON."
     )
     suspend fun todo_decided(
         @McpDescription("Item id, for example T-12") id: String,

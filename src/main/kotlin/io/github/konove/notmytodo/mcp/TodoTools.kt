@@ -78,6 +78,7 @@ class TodoTools(private val project: Project) {
         if (links.isBlocked(item)) json.addProperty("blocked", true)
         links.children(id).takeIf { it.isNotEmpty() }?.let { parts ->
             json.add("children", JsonArray().also { a -> parts.forEach { a.add(it.id) } })
+            json.addProperty("parts", openOf(parts))
         }
         // Written in the order of item.anchors.
         val encoded = json.getAsJsonArray("anchors")
@@ -122,7 +123,7 @@ class TodoTools(private val project: Project) {
         val anchors = (listOfNotNull(first) + parsePlaces(places).map(::buildAnchor)).distinctBy(Anchor::place)
         val draft = Draft(
             title, details.orEmpty(), parsedPriority, waiting(Tags.parseList(tags.orEmpty()), toDecide), Author.AGENT, anchors,
-            source = source, toDecide = toDecide, effort = effort?.takeIf { it.isNotBlank() }?.let(::parseEffort),
+            source = source?.let(::named), toDecide = toDecide, effort = effort?.takeIf { it.isNotBlank() }?.let(::parseEffort),
         )
         return linked(draft, blockedBy, duplicateOf, parent)
     }
@@ -133,6 +134,20 @@ class TodoTools(private val project: Project) {
         duplicateOf = duplicateOf?.takeIf { it.isNotBlank() }?.let(::parseId),
         parent = parent?.takeIf { it.isNotBlank() }?.let(::parseId),
     )
+
+    /**
+     * [source] with the names in it, HEAD and the like, as the commits they stand for now: one name, or
+     * each end of a range. An id is left as it is, and so is what git does not know, since a source
+     * may name a run in words.
+     */
+    private fun named(source: String): String {
+        val commits = project.service<FixCommits>()
+        val range = RANGE.matchEntire(source.trim()) ?: return commits.resolve(source) ?: source
+        val (from, dots, to) = range.destructured
+        val first = commits.resolve(from)
+        val last = commits.resolve(to)
+        return if (first == null && last == null) source else "${first ?: from}$dots${last ?: to}"
+    }
 
     /** The [tags] of an item that is told what is [toDecide]: it waits for the user from then on. */
     private fun waiting(tags: List<String>, toDecide: String?): List<String> =
@@ -201,6 +216,7 @@ class TodoTools(private val project: Project) {
         val parsedTags = tags?.let(Tags::parseList)
         // HEAD and the like are stored as the commit they name now: later they would name another.
         val commit = fixedIn?.let { project.service<FixCommits>().resolve(it) ?: it }
+        val from = source?.let(::named)
         return {
             it.copy(
                 title = title ?: it.title,
@@ -212,7 +228,7 @@ class TodoTools(private val project: Project) {
                 duplicateOf = if (duplicateOf != null) original else it.duplicateOf,
                 parent = if (parent != null) partOf else it.parent,
                 // The store reads an empty text as none.
-                source = source ?: it.source,
+                source = from ?: it.source,
                 fixedIn = commit ?: it.fixedIn,
                 resolution = resolution ?: it.resolution,
                 toDecide = toDecide ?: it.toDecide,
@@ -500,8 +516,12 @@ class TodoTools(private val project: Project) {
         }
         item.duplicateOf?.let { json.addProperty("duplicateOf", it) }
         item.parent?.let { json.addProperty("parent", it) }
+        links.children(item.id).takeIf { it.isNotEmpty() }?.let { json.addProperty("parts", openOf(it)) }
         return json
     }
+
+    /** How many of the [parts] of an item are still open, which tells when the item itself can be closed. */
+    private fun openOf(parts: List<TodoItem>): String = "${parts.count { !it.isClosed }}/${parts.size} open"
 
     private fun rows(rows: List<JsonObject>): String =
         if (rows.isEmpty()) "[]" else rows.joinToString(",\n", "[\n", "\n]") { it.toString() }
@@ -601,5 +621,6 @@ class TodoTools(private val project: Project) {
         )
         val REF_NAME = Regex("[A-Za-z0-9_-]+")
         val REF = Regex("\\$(${REF_NAME.pattern})")
+        val RANGE = Regex("(\\S+?)(\\.{2,3})(\\S+)")
     }
 }

@@ -73,9 +73,9 @@ With the IDE's MCP server enabled, these tools are available:
 
 | Tool | Purpose |
 |---|---|
-| `todo_list` | List items, filtered by status, tags to have or not have, priority, effort, file or directory, text (`text` for every word, `anyText` for any of several words or phrases), `blocked` and `parent`; `compact` leaves out details |
+| `todo_list` | List items, filtered by status, tags to have or not have, priority, effort, file or directory, text (`text` for every word, `anyText` for any of several words or phrases), `blocked` and `parent`; `compact` leaves out details and says of a parent how many of its parts are still open |
 | `todo_get` | One item with its current line range and code; an anchor that is lost has the stored text in place of the code |
-| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, with the `source` commit or run it came from, with an `effort` of `s`, `m` or `l`, and with `toDecide` when you have to decide something first |
+| `todo_create` | Add an item, optionally attached to `path` and lines, linked with `blockedBy`, `duplicateOf` and `parent`, with the `source` commit or run it came from (`HEAD` and other names are stored as the commits they name), with an `effort` of `s`, `m` or `l`, and with `toDecide` when you have to decide something first |
 | `todo_update` | Change fields; set `status` to `fixed` when the work is done; pass `startLine` to re-attach it to moved code; `blockedBy`, `duplicateOf` and `parent` set its links; `resolution` says what was done, and the commit that names the item id in its message is shown as the one that fixed it, unless `fixedIn` names another; `toDecide` says what you have to decide and tags the item `needs-decision` |
 | `todo_comment` | Add a note to an item's comments without touching its other fields |
 | `todo_decided` | Record what you were asked about an item and what you answered: each question, the options offered and the answer; the `needs-decision` tag is taken away |

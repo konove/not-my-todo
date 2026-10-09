@@ -47,6 +47,14 @@ class TodoToolsetTest : BasePlatformTestCase() {
         assertTrue(description("todo_update").contains("changed"))
         assertTrue(description("todo_list", "anyText").contains("at least one"))
         assertTrue(description("todo_delete").contains("you made"))
+        assertTrue(description("todo_list").contains("anyText"))
+        // What the tool said before it took the tag away.
+        assertFalse(description("todo_decided").contains("the tags and the status are not changed"))
+        for (tool in listOf("todo_create", "todo_update")) assertTrue(tool, description(tool, "source").contains("HEAD"))
+        for (tool in listOf("todo_list", "todo_get", "todo_create", "todo_update", "todo_comment", "todo_batch", "todo_decided")) {
+            assertTrue(tool, description(tool).contains("parts"))
+        }
+        assertTrue(description("todo_list", "compact").contains("parts"))
     }
 
     fun `test an array is read as it is and so is a text that holds one`() {
