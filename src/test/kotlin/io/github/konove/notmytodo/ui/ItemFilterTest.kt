@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Effort
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -165,21 +166,49 @@ class ItemFilterTest {
         val other = TodoItem("T-3", "other", priority = Priority.P2)
         val closed = TodoItem("T-4", "closed", status = Status.DONE, parent = "T-1")
         val all = listOf(whole, first, other, closed)
-        val links = io.github.konove.notmytodo.model.Links(all)
+        val links = Links(all)
         val shown = ItemFilter.apply(all, ItemQuery())
-        assertEquals(listOf("T-2", "T-3", "T-1"), shown.map { it.id })
+        // The parent has the priority of its open part, and so comes before it.
+        assertEquals(listOf("T-1", "T-2", "T-3"), shown.map { it.id })
         assertEquals(
-            listOf(ItemRow(other), ItemRow(whole, 0, false, 1, 2), ItemRow(first, 1, true)),
+            listOf(ItemRow(whole, 0, false, 1, 2, Priority.P1), ItemRow(first, 1, true), ItemRow(other)),
             ItemGroups.rows(shown, GroupBy.NONE, emptySet(), links),
         )
         assertEquals(
             listOf<Any>(
-                GroupHeader("P1", "P1", 1, false), ItemRow(first, 1, true),
+                GroupHeader("P1", "P1", 2, false), ItemRow(whole, 1, false, 1, 2, Priority.P1), ItemRow(first, 2, true),
                 GroupHeader("P2", "P2", 1, false), ItemRow(other, 1),
-                GroupHeader("P3", "P3", 1, false), ItemRow(whole, 1, false, 1, 2),
             ),
             ItemGroups.rows(shown, GroupBy.PRIORITY, emptySet(), links),
         )
+    }
+
+    @Test
+    fun `a parent has the highest priority among its open parts, and its own when it has none`() {
+        val whole = TodoItem("T-1", "whole", priority = Priority.P1)
+        val low = TodoItem("T-2", "low", priority = Priority.P3, parent = "T-1")
+        val middle = TodoItem("T-3", "middle", priority = Priority.P2, parent = "T-1")
+        val closed = TodoItem("T-4", "closed", priority = Priority.P1, status = Status.DONE, parent = "T-1")
+        fun of(vararg parts: TodoItem) = Links(listOf(whole) + parts).priority(whole)
+        assertEquals(Priority.P1, of())
+        assertEquals(Priority.P3, of(low))
+        assertEquals(Priority.P2, of(low, middle, closed))
+        assertEquals(Priority.P2, of(middle.copy(status = Status.FIXED)))
+        assertEquals(Priority.P1, of(closed, low.copy(status = Status.WONT_FIX)))
+        assertEquals(Priority.P3, Links(listOf(whole, low)).priority(low))
+    }
+
+    @Test
+    fun `a parent is filtered by the priority of its parts, listed or not`() {
+        val all = listOf(
+            TodoItem("T-1", "whole", priority = Priority.P3),
+            TodoItem("T-2", "part", priority = Priority.P2, parent = "T-1", tags = listOf("bugs")),
+            TodoItem("T-3", "other", priority = Priority.P3),
+        )
+        fun ids(q: ItemQuery) = ItemFilter.apply(all, q).map { it.id }
+        assertEquals(listOf("T-1", "T-2"), ids(ItemQuery(priorities = setOf(Priority.P2))))
+        assertEquals(listOf("T-3"), ids(ItemQuery("!p3")))
+        assertEquals(listOf("T-1"), ids(ItemQuery("!p2 whole")))
     }
 
     @Test

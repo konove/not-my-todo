@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.model.Links
+import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
 import java.util.TreeMap
 
@@ -19,10 +20,12 @@ data class GroupHeader(
 
 /**
  * An item in the item list, [depth] levels in. [blocked] while it waits for another item. A parent
- * has [parts] parts, in the list or not, [partsClosed] of them closed.
+ * has [parts] parts, in the list or not, [partsClosed] of them closed, and while one is open its
+ * [priority] is theirs and not its own.
  */
 data class ItemRow(
     val item: TodoItem, val depth: Int = 0, val blocked: Boolean = false, val partsClosed: Int = 0, val parts: Int = 0,
+    val priority: Priority = item.priority,
 )
 
 object ItemGroups {
@@ -36,7 +39,7 @@ object ItemGroups {
      */
     fun rows(items: List<TodoItem>, by: GroupBy, collapsed: Set<String>, links: Links = Links.NONE): List<Any> {
         if (by == GroupBy.DIRECTORY) return tree(items, collapsed, links)
-        val keys = items.map { key(it, by) ?: return nested(items, 0, links) }
+        val keys = items.map { key(it, by, links) ?: return nested(items, 0, links) }
         val groups = items.indices.groupBy { keys[it] }.toSortedMap(compareBy<Pair<Int, String>> { it.first }.thenBy { it.second })
         val kind = if (by == GroupBy.FILE) GroupKind.FILE else GroupKind.OTHER
         return groups.flatMap { (key, members) ->
@@ -53,7 +56,7 @@ object ItemGroups {
         val parts = members.filter { it.parent in ids }.groupBy { it.parent }
         fun row(item: TodoItem, at: Int): ItemRow {
             val all = links.children(item.id)
-            return ItemRow(item, at, links.isBlocked(item), all.count { it.isClosed }, all.size)
+            return ItemRow(item, at, links.isBlocked(item), all.count { it.isClosed }, all.size, links.priority(item))
         }
         return members.filter { it.parent !in ids }.flatMap { item ->
             listOf(row(item, depth)) + parts[item.id].orEmpty().map { row(it, depth + 1) }
@@ -65,13 +68,13 @@ object ItemGroups {
         rows(items, by, emptySet()).filterIsInstance<GroupHeader>().mapTo(HashSet()) { it.key }
 
     /** The rank and label of [item]'s group, or null when [by] does not apply to it. */
-    private fun key(item: TodoItem, by: GroupBy): Pair<Int, String>? {
+    private fun key(item: TodoItem, by: GroupBy, links: Links): Pair<Int, String>? {
         val path = item.anchor?.path
         return when (by) {
             GroupBy.NONE, GroupBy.DIRECTORY -> null
             GroupBy.FILE -> path?.let { 0 to it } ?: (1 to NOTES)
             GroupBy.STATUS -> if (CodeTodos.isCode(item)) null else item.status.ordinal to item.status.label
-            GroupBy.PRIORITY -> if (CodeTodos.isCode(item)) null else item.priority.ordinal to item.priority.name
+            GroupBy.PRIORITY -> if (CodeTodos.isCode(item)) null else links.priority(item).let { it.ordinal to it.name }
         }
     }
 

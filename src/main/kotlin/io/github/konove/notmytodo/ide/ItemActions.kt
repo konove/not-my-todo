@@ -75,8 +75,9 @@ object ItemActions {
     /** Shows the handoff dialog, sends the prompt, and marks the item in progress. */
     fun fix(project: Project, id: String) {
         project.service<AnchorTracker>().flushAll()
-        val item = TodoService.getInstance(project).store.find(id) ?: return
-        if (handOff(project, item)) setStatus(project, id, Status.IN_PROGRESS)
+        val store = TodoService.getInstance(project).store
+        val item = store.find(id) ?: return
+        if (handOff(project, Links(store.items).shown(item))) setStatus(project, id, Status.IN_PROGRESS)
     }
 
     private fun handOff(project: Project, item: TodoItem): Boolean {
@@ -193,7 +194,8 @@ object ItemActions {
             project, "Send ${items.size} items ($names) to $where$after${if (held > 0) "." else "?"}", "Fix with Claude", null,
         )
         if (answer != Messages.YES) return
-        val prompt = PromptBuilder.buildAll(items, fileTexts(project, items), promptOptions(project))
+        val links = Links(TodoService.getInstance(project).store.items)
+        val prompt = PromptBuilder.buildAll(items.map(links::shown), fileTexts(project, items), promptOptions(project))
         deliver(project, target, prompt, items.map { it.id })
         tracked.forEach { setStatus(project, it.id, Status.IN_PROGRESS) }
     }

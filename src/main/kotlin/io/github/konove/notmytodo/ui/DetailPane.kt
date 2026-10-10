@@ -504,6 +504,11 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val code = CodeTodos.isCode(item)
         val links = if (code) Links.NONE else Links(store.items)
         showLinks(item, links)
+        // A parent's priority is that of its open parts, so there is nothing to choose while it has any.
+        val fromParts = links.hasOpenParts(item)
+        val priority = links.priority(item)
+        priorityBox.isEnabled = !fromParts
+        priorityBox.toolTipText = if (fromParts) "Priority: ${priority.name}, the highest among the open parts" else "Priority"
         val anchor = item.anchors.getOrNull(anchorIndex)
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
@@ -516,7 +521,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             viewDetails.text = text
             viewDetails.caretPosition = 0
         }
-        val strip = if (code) listOf(Chips.codeComment) else Chips.strip(item, links.isBlocked(item))
+        val strip = if (code) listOf(Chips.codeComment) else Chips.strip(item, links.isBlocked(item), priority)
         if (strip != shownStrip) {
             shownStrip = strip
             metaStrip.removeAll()
@@ -527,7 +532,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         anchorSteps.isVisible = item.anchors.size > 1
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
         codeBox.isVisible = anchor != null
-        if (anchor != null) showCode(anchor, PriorityColors.tint(item.priority))
+        if (anchor != null) showCode(anchor, PriorityColors.tint(priority))
         deleteToolbar.updateActionsAsync()
         showMode()
     }

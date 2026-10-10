@@ -94,11 +94,11 @@ internal object Chips {
         else -> null
     }
 
-    /** Everything about [item] in one line: priority, effort, status, id, flags, tags. */
-    fun strip(item: TodoItem, blocked: Boolean): List<ChipSpec> {
+    /** Everything about [item] in one line: priority, effort, status, id, flags, tags. The [priority] is the one it is shown with. */
+    fun strip(item: TodoItem, blocked: Boolean, priority: Priority = item.priority): List<ChipSpec> {
         val next = waits(item, blocked) ?: agentCanFix.takeIf { item.status == Status.OPEN || item.status == Status.IN_PROGRESS }
         return listOfNotNull(
-            priority(item.priority), item.effort?.let(::effort), status(item.status), id(item),
+            priority(priority), item.effort?.let(::effort), status(item.status), id(item),
             anchorLost.takeIf { item.anyLost }, next,
         ) + tags(item)
     }

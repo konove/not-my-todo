@@ -31,7 +31,9 @@ AI agent take items off your hands.
   be a part of one. A blocked item shows a padlock and is left out of Agent
   can fix until every item it waits for is closed. Parts stand under their
   parent in the list, which shows how many of them are closed; parts go one
-  level deep. The detail pane shows the links, an id there goes to that item,
+  level deep. A parent with open parts has the highest priority among them,
+  whatever was set on it, so a part never stands under a parent of less
+  weight; its own priority comes back when the last of them is closed. The detail pane shows the links, an id there goes to that item,
   and Edit changes them.
 - **Where from, and how fixed:** an item can say which commit or run it came
   from, and once fixed, in which commit and what was done. Agents are asked

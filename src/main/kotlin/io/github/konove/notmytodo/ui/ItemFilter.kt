@@ -17,7 +17,7 @@ enum class ItemSort(val label: String) {
 }
 
 /**
- * Words in [text] are looked for in the id, title, details and tags; `!p1`..`!p3` asks for a priority and `!s`, `!m` or `!l` for an effort. An empty set of priorities, statuses or authors means any. A status asked for by name is shown even when closed.
+ * Words in [text] are looked for in the id, title, details and tags; `!p1`..`!p3` asks for a priority and `!s`, `!m` or `!l` for an effort. A priority is the one [Links.priority] gives: a parent has that of its open parts. An empty set of priorities, statuses or authors means any. A status asked for by name is shown even when closed.
  */
 data class ItemQuery(
     val text: String = "",
@@ -41,18 +41,18 @@ object ItemFilter {
         return items
             // An item asked for by its id is shown even when closed.
             .filter { query.showClosed || !it.isClosed || it.status in query.statuses || it.id.lowercase() in words }
-            .filter { query.priorities.isEmpty() || it.priority in query.priorities }
+            .filter { query.priorities.isEmpty() || links.priority(it) in query.priorities }
             .filter { query.statuses.isEmpty() || it.status in query.statuses }
             .filter { query.authors.isEmpty() || it.author in query.authors }
             .filter { inScope(it, query, links) }
             .filter { query.tag == null || query.tag in it.tags }
-            .filter { item -> words.all { matches(item, it) } }
-            .sortedWith(order(query.sort))
+            .filter { item -> words.all { matches(item, it, links) } }
+            .sortedWith(order(query.sort, links))
     }
 
-    private fun order(sort: ItemSort): Comparator<TodoItem> {
+    private fun order(sort: ItemSort, links: Links): Comparator<TodoItem> {
         // Within a priority the quick ones come first; an item nobody has sized goes after the large ones.
-        val byPriority = compareBy<TodoItem> { it.priority }.thenBy { it.effort?.ordinal ?: Effort.entries.size }.thenBy { it.number }
+        val byPriority = compareBy<TodoItem> { links.priority(it) }.thenBy { it.effort?.ordinal ?: Effort.entries.size }.thenBy { it.number }
         return when (sort) {
             ItemSort.PRIORITY -> byPriority
             ItemSort.UPDATED -> compareByDescending<TodoItem> { it.updated }.then(byPriority)
@@ -71,8 +71,8 @@ object ItemFilter {
         Scope.NEEDS_DECISION -> item.needsDecision
     }
 
-    private fun matches(item: TodoItem, word: String): Boolean = when {
-        priorityToken.matches(word) -> item.priority.json == word.drop(1)
+    private fun matches(item: TodoItem, word: String, links: Links): Boolean = when {
+        priorityToken.matches(word) -> links.priority(item).json == word.drop(1)
         effortToken.matches(word) -> item.effort?.json == word.drop(1)
         word.startsWith("#") && word.length > 1 -> word.drop(1) in item.tags
         else -> item.id.lowercase().contains(word) ||

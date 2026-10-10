@@ -53,7 +53,7 @@ class TodoTools(private val project: Project) {
         val links = Links(all)
         val found = all.filter { item ->
             (statuses.isEmpty() || item.status in statuses) &&
-                (wantedPriority == null || item.priority == wantedPriority) &&
+                (wantedPriority == null || links.priority(item) == wantedPriority) &&
                 (wantedEffort == null || item.effort == wantedEffort) &&
                 item.tags.containsAll(wanted) && unwanted.none { it in item.tags } &&
                 (under == null || item.anchors.any { isUnder(it.path, under) }) &&
@@ -73,8 +73,8 @@ class TodoTools(private val project: Project) {
     fun get(id: String, full: Boolean = false): String {
         val item = asNow(listOf(item(id))).single()
         fixes(listOf(item))
-        val json = encoded(item)
         val links = Links(readable())
+        val json = encoded(item, links)
         if (links.isBlocked(item)) json.addProperty("blocked", true)
         links.children(id).takeIf { it.isNotEmpty() }?.let { parts ->
             json.add("children", JsonArray().also { a -> parts.forEach { a.add(it.id) } })
@@ -449,8 +449,9 @@ class TodoTools(private val project: Project) {
      */
     private fun reply(saved: TodoItem, full: Boolean, changed: List<String>? = null): String {
         val item = asNow(listOf(saved)).single()
-        if (full) return TodoJson.toText(encoded(item))
-        val row = compactRow(item, Links(readable()))
+        val links = Links(readable())
+        if (full) return TodoJson.toText(encoded(item, links))
+        val row = compactRow(item, links)
         changed?.let { names ->
             for (name in names) {
                 val value = when (name) {
@@ -478,8 +479,12 @@ class TodoTools(private val project: Project) {
         return (was.keySet() + now.keySet()).filter { it != "updated" && was.get(it) != now.get(it) }
     }
 
-    /** An item as JSON, with the commit that fixed it when git knows it and the item does not say. */
-    private fun encoded(item: TodoItem): JsonObject = TodoJson.encodeItem(project.service<FixCommits>().shown(item))
+    /**
+     * An item as JSON, with the commit that fixed it when git knows it and the item does not say, and
+     * with the priority of its open parts when it has any.
+     */
+    private fun encoded(item: TodoItem, links: Links): JsonObject =
+        TodoJson.encodeItem(project.service<FixCommits>().shown(links.shown(item)))
 
     /** Asks git which commits fixed [items], when one of them is closed without saying so itself. */
     private fun fixes(items: List<TodoItem>) {
@@ -488,7 +493,7 @@ class TodoTools(private val project: Project) {
     }
 
     private fun summary(item: TodoItem, links: Links): JsonObject {
-        val json = encoded(item)
+        val json = encoded(item, links)
         if (links.isBlocked(item)) json.addProperty("blocked", true)
         json.getAsJsonArray("anchors")?.forEach {
             it.asJsonObject.apply {
@@ -504,7 +509,7 @@ class TodoTools(private val project: Project) {
         val json = JsonObject()
         json.addProperty("id", item.id)
         json.addProperty("title", item.title)
-        json.addProperty("priority", item.priority.json)
+        json.addProperty("priority", links.priority(item).json)
         item.effort?.let { json.addProperty("effort", it.json) }
         json.addProperty("status", item.status.json)
         json.add("tags", JsonArray().also { a -> item.tags.forEach(a::add) })

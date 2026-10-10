@@ -164,6 +164,20 @@ class Links(items: List<TodoItem>) {
     /** The items [id] is the parent of, in id order. */
     fun children(id: String): List<TodoItem> = parts[id].orEmpty()
 
+    /** True while [item] has a part that is not closed: its priority is then that of its parts and not its own. */
+    fun hasOpenParts(item: TodoItem): Boolean = children(item.id).any { !it.isClosed }
+
+    /**
+     * The priority [item] is shown, sorted and filtered with: the highest among its parts that are
+     * not closed, whatever its own is, so that a part never stands under a parent of less weight.
+     * An item with no open part has its own.
+     */
+    fun priority(item: TodoItem): Priority =
+        children(item.id).filterNot { it.isClosed }.minOfOrNull { it.priority } ?: item.priority
+
+    /** [item] with the priority it is shown with, for where it is only read. Not to be saved. */
+    fun shown(item: TodoItem): TodoItem = priority(item).let { if (it == item.priority) item else item.copy(priority = it) }
+
     companion object {
         val NONE = Links(emptyList())
     }

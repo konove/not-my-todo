@@ -19,13 +19,18 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
+import io.github.konove.notmytodo.model.Links
+import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.settings.TodoSettingsListener
 import javax.swing.Icon
 
-class TodoGutterRenderer(private val project: Project, val item: TodoItem) : GutterIconRenderer() {
-    override fun getIcon(): Icon = PriorityColors.icon(item.priority)
+/** The gutter mark of [item], in the colour of the [priority] it is shown with. */
+class TodoGutterRenderer(
+    private val project: Project, val item: TodoItem, private val priority: Priority = item.priority,
+) : GutterIconRenderer() {
+    override fun getIcon(): Icon = PriorityColors.icon(priority)
     override fun getTooltipText(): String = "${item.id}: ${item.title}"
     override fun getAccessibleName(): String = "TODO ${item.id}: ${item.title}"
     override fun isNavigateAction(): Boolean = true
@@ -33,8 +38,8 @@ class TodoGutterRenderer(private val project: Project, val item: TodoItem) : Gut
         override fun actionPerformed(e: AnActionEvent) = ItemPopup.show(project, item.id, e)
     }
 
-    override fun equals(other: Any?): Boolean = other is TodoGutterRenderer && other.item == item
-    override fun hashCode(): Int = item.hashCode()
+    override fun equals(other: Any?): Boolean = other is TodoGutterRenderer && other.item == item && other.priority == priority
+    override fun hashCode(): Int = 31 * item.hashCode() + priority.hashCode()
 }
 
 /** Draws a gutter mark, a tinted background and a mark on the scrollbar for the anchored lines of every open item in an open file. */
@@ -69,21 +74,23 @@ class EditorDecorator(private val project: Project) : Disposable {
         if (!TodoSettings.getInstance().values.editorMarks) return
         val items = service.store.items.filter { item -> !item.isClosed && item.anchors.any(::marked) }
         if (items.isEmpty()) return
+        val links = Links(service.store.items)
         for (file in FileEditorManager.getInstance(project).openFiles) {
             val path = service.relativePath(file) ?: continue
             val document = FileDocumentManager.getInstance().getCachedDocument(file) ?: continue
             val markup = DocumentMarkupModel.forDocument(document, project, true)
             for ((item, anchor) in items.flatMap { item -> item.anchors.filter(::marked).map { item to it } }) {
                 if (anchor.path != path || anchor.endLine > document.lineCount) continue
+                val priority = links.priority(item)
                 val highlighter = markup.addRangeHighlighter(
                     document.getLineStartOffset(anchor.startLine - 1),
                     document.getLineEndOffset(anchor.endLine - 1),
                     HighlighterLayer.SELECTION - 1,
-                    TextAttributes().apply { backgroundColor = PriorityColors.tint(item.priority) },
+                    TextAttributes().apply { backgroundColor = PriorityColors.tint(priority) },
                     HighlighterTargetArea.LINES_IN_RANGE,
                 )
-                highlighter.gutterIconRenderer = TodoGutterRenderer(project, item)
-                highlighter.setErrorStripeMarkColor(PriorityColors.solid(item.priority))
+                highlighter.gutterIconRenderer = TodoGutterRenderer(project, item, priority)
+                highlighter.setErrorStripeMarkColor(PriorityColors.solid(priority))
                 highlighter.errorStripeTooltip = "${item.id}: ${item.title}"
                 highlighters += highlighter
             }

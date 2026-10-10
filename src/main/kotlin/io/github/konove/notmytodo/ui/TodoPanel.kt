@@ -691,7 +691,7 @@ class TodoPanel(
             val code = CodeTodos.isCode(value)
             val (mark, title, place, id, updated) = cells.texts
             cells.texts.forEach { it.clear() }
-            mark.icon = if (code) AllIcons.General.TodoDefault else PriorityColors.icon(value.priority)
+            mark.icon = if (code) AllIcons.General.TodoDefault else PriorityColors.icon(row.priority)
             title.append(
                 value.title,
                 if (value.isClosed) SimpleTextAttributes(SimpleTextAttributes.STYLE_STRIKEOUT, null)

@@ -327,6 +327,28 @@ class TodoToolsTest : BasePlatformTestCase() {
         assertEquals(listOf("T-2"), store.find("T-3")!!.blockedBy)
     }
 
+    fun `test a parent is listed and read with the priority of its open parts`() {
+        tools.create("whole", null, "p3", null, null, null, null)
+        tools.create("first", null, "p1", null, null, null, null, parent = "T-1")
+        tools.create("second", null, "p2", null, null, null, null, parent = "T-1")
+        fun ids(json: String) = JsonParser.parseString(json).asJsonArray.map { it.asJsonObject.get("id").asString }
+        fun got(id: String) = JsonParser.parseString(tools.get(id)).asJsonObject.get("priority").asString
+        fun listed(compact: Boolean) = JsonParser.parseString(tools.list(compact = compact)).asJsonArray[0].asJsonObject.get("priority").asString
+
+        assertEquals(listOf("T-1", "T-2"), ids(tools.list(priority = "p1")))
+        assertEquals(emptyList<String>(), ids(tools.list(priority = "p3")))
+        assertEquals("p1", listed(compact = true))
+        assertEquals("p1", listed(compact = false))
+        assertEquals("p1", got("T-1"))
+        // What was set on the parent is kept, and is its priority again once no part is open.
+        assertEquals("p3", store.find("T-1")!!.priority.json)
+        tools.update("T-2", null, null, null, null, "done")
+        assertEquals("p2", got("T-1"))
+        assertEquals("p2", JsonParser.parseString(tools.update("T-1", null, null, "p1", null, null)).asJsonObject.get("priority").asString)
+        tools.update("T-3", null, null, null, null, "wont_fix")
+        assertEquals("p1", got("T-1"))
+    }
+
     fun `test a parent says how many of its parts are open, fixed and closed`() {
         tools.create("whole", null, null, null, null, null, null)
         tools.create("first", null, null, null, null, null, null, parent = "T-1")

@@ -14,6 +14,7 @@ import com.intellij.util.ui.JBUI
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Links
+import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import java.awt.BorderLayout
@@ -34,7 +35,8 @@ object ItemPopup {
         val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
         val panel = JPanel(BorderLayout(0, JBUI.scale(10))).apply {
             border = JBUI.Borders.empty(12, 14, 10, 14)
-            add(content(item, Links(store.items).isBlocked(item)), BorderLayout.CENTER)
+            val links = Links(store.items)
+            add(content(item, links.isBlocked(item), links.priority(item)), BorderLayout.CENTER)
             add(buttonRow, BorderLayout.SOUTH)
         }
         val popup = JBPopupFactory.getInstance().createComponentPopupBuilder(panel, null)
@@ -50,7 +52,7 @@ object ItemPopup {
      * The title, the chips and the details of [item], one under the other and [WIDTH] wide. Each
      * wraps to that width, and the details scroll when they are longer than [DETAILS_MAX].
      */
-    internal fun content(item: TodoItem, blocked: Boolean): JPanel {
+    internal fun content(item: TodoItem, blocked: Boolean, priority: Priority = item.priority): JPanel {
         val width = JBUI.scale(WIDTH)
         val title = JBTextArea(item.title).apply {
             isEditable = false
@@ -61,7 +63,7 @@ object ItemPopup {
             border = null
             font = JBUI.Fonts.label().let { it.deriveFont(Font.BOLD, it.size2D + 1f) }
         }
-        val strip = MetaStrip().apply { Chips.strip(item, blocked).forEach { add(Chip(it)) } }
+        val strip = MetaStrip().apply { Chips.strip(item, blocked, priority).forEach { add(Chip(it)) } }
         val parts = ArrayList<JComponent>(listOf(title, strip))
         // What wraps says how high it is only once it knows how wide it is.
         parts.forEach { it.setSize(width, Short.MAX_VALUE.toInt()) }

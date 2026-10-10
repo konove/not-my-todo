@@ -18,7 +18,7 @@ class TodoToolset : McpToolset {
         "List the TODO items kept by the Not My TODO plugin for this project, in id order. " +
             "All filters must match. Returns a JSON array. Anchored items include, for each of their anchors, the file path and " +
             "current line range but not the code; use todo_get for the code. To choose what to work on next, take the highest priority first and, " +
-            "within a priority, the least effort. Pass lost=true after moving or rewriting code " +
+            "within a priority, the least effort. An item with open parts has the highest priority among them, here and wherever it is shown, whatever was set on it. Pass lost=true after moving or rewriting code " +
             "to find the items that need re-attaching: the files are read from disk again for every answer, so lost is as the code is now. Pass blocked=false to find the items that can be worked on now. Pass compact=true to survey many items, " +
             "for example to check for a duplicate before todo_create; with anyText one call looks for it under every name it may have. " +
             "In a compact line, an item that has parts says how many of them are open, fixed and closed as parts, for example \"2 open, 2 fixed, 1 closed\", " +
@@ -104,7 +104,7 @@ class TodoToolset : McpToolset {
         @McpDescription("Item id, for example T-12") id: String,
         @McpDescription("New title") title: String? = null,
         @McpDescription("New details") details: String? = null,
-        @McpDescription("p1, p2 or p3") priority: String? = null,
+        @McpDescription("p1, p2 or p3. On an item with open parts it is kept but not shown until they are closed: set the priority of the parts instead") priority: String? = null,
         @McpDescription("Replacement tags separated by commas or spaces. An item tagged needs-decision waits for the user: do not fix it. To make an item wait, pass toDecide; todo_decided takes the tag away, so do not pass tags to drop it") tags: String? = null,
         @McpDescription("open, in_progress, fixed, done or wont_fix") status: String? = null,
         @McpDescription("File to re-attach to, as a path relative to the project root; defaults to the item's current file") path: String? = null,
