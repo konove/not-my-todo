@@ -105,7 +105,12 @@ class EditorDecorator(private val project: Project) : Disposable {
             .mapNotNull { (it.gutterIconRenderer as? TodoGutterRenderer)?.item?.id }
 
     private fun clear() {
-        highlighters.forEach { it.dispose() }
+        highlighters.forEach {
+            // The IDE can keep a removed highlighter, as the subject of the last tooltip it showed.
+            // Left on it, the renderer would keep this plugin's classes from unloading.
+            it.gutterIconRenderer = null
+            it.dispose()
+        }
         highlighters.clear()
     }
 

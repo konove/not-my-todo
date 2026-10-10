@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.anchor.AnchorResolver
@@ -61,6 +62,28 @@ class EditorDecoratorTest : BasePlatformTestCase() {
         TodoSettings.getInstance().update(TodoSettings.Values(editorMarks = true))
         PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
         assertEquals(listOf(open.id), decorator.decoratedIds(myFixture.editor.document))
+    }
+
+    // The IDE keeps the mark of the last tooltip it showed; a renderer left on it would keep the plugin from unloading.
+    fun `test a removed mark lets go of its renderer`() {
+        val service = TodoService.getInstance(project)
+        val store = service.store
+        Files.deleteIfExists(store.file)
+        store.reload()
+        val psi = myFixture.configureByText("a.txt", text)
+        val path = service.relativePath(psi.virtualFile)!!
+        store.create(Draft("open", anchors = listOf(AnchorResolver.capture(path, text, 1, 1))))
+        val decorator = project.service<EditorDecorator>()
+        decorator.start()
+        decorator.refresh()
+        val mark = DocumentMarkupModel.forDocument(myFixture.editor.document, project, true).allHighlighters
+            .single { it.gutterIconRenderer is TodoGutterRenderer }
+
+        TodoSettings.getInstance().update(TodoSettings.Values(editorMarks = false))
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+
+        assertFalse(mark.isValid)
+        assertNull(mark.gutterIconRenderer)
     }
 
     fun `test every anchored range of an item gets a mark and a whole file gets none`() {
