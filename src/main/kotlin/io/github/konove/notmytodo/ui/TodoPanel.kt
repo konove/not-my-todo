@@ -634,13 +634,14 @@ class TodoPanel(
     private class Cells : JPanel(null) {
         val mark = cell()
         val title = cell()
+        val effort = cell()
         val tags = ChipRow()
         val place = cell()
         val status = ChipRow()
         val id = cell()
         val updated = cell().apply { setTextAlign(SwingConstants.RIGHT) }
         val texts = listOf(mark, title, place, id, updated)
-        val all: List<JComponent> = listOf(mark, title, tags, place, status, id, updated).onEach(::add)
+        val all: List<JComponent> = listOf(mark, title, effort, tags, place, status, id, updated).onEach(::add)
 
         init {
             isOpaque = false
@@ -691,14 +692,15 @@ class TodoPanel(
             val code = CodeTodos.isCode(value)
             val (mark, title, place, id, updated) = cells.texts
             cells.texts.forEach { it.clear() }
+            cells.effort.clear()
             mark.icon = if (code) AllIcons.General.TodoDefault else PriorityColors.icon(row.priority)
             title.append(
                 value.title,
                 if (value.isClosed) SimpleTextAttributes(SimpleTextAttributes.STYLE_STRIKEOUT, null)
                 else SimpleTextAttributes.REGULAR_ATTRIBUTES,
             )
-            value.effort?.let { title.append("  ${it.name}", grey) }
             if (row.parts > 0) title.append("  ${row.partsClosed}/${row.parts} closed", grey)
+            value.effort?.let { cells.effort.append(it.name, grey) }
             cells.tags.show(listOfNotNull(Chips.waits(value, row.blocked)) + Chips.tags(value))
             val anchor = value.anchor
             when {
@@ -728,8 +730,8 @@ class TodoPanel(
             (component as? Container)?.components?.forEach(::layOut)
         }
 
-        /** Priority, title, tags, place, status, ID, updated. The title takes what is left. */
-        val COLUMN_WIDTHS = listOf(28, 0, 220, 240, 110, 50, 130)
+        /** Priority, title, effort, tags, place, status, ID, updated. The title takes what is left. */
+        val COLUMN_WIDTHS = listOf(28, 0, 32, 220, 240, 110, 50, 130)
 
         /** The file with its directory, the lines, and how many [more] anchors the item has: `ui/TodoPanel.kt:124–129 +2`. */
         fun placeText(anchor: Anchor, more: Int = 0): String {
