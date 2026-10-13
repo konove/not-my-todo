@@ -108,7 +108,8 @@ class EditorDecorator(private val project: Project) : Disposable {
         highlighters.forEach {
             // The IDE can keep a removed highlighter, as the subject of the last tooltip it showed.
             // Left on it, the renderer would keep this plugin's classes from unloading.
-            it.gutterIconRenderer = null
+            // A mark the IDE already dropped, as it does when its lines are deleted, throws when its renderer is set.
+            if (it.isValid) it.gutterIconRenderer = null
             it.dispose()
         }
         highlighters.clear()

@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.ui
 
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.testFramework.PlatformTestUtil
@@ -84,6 +85,29 @@ class EditorDecoratorTest : BasePlatformTestCase() {
 
         assertFalse(mark.isValid)
         assertNull(mark.gutterIconRenderer)
+    }
+
+    // Deleting its lines makes the IDE drop a mark by itself, and a dropped mark throws when its renderer is set.
+    fun `test a mark whose lines were deleted is cleared without an error`() {
+        val service = TodoService.getInstance(project)
+        val store = service.store
+        Files.deleteIfExists(store.file)
+        store.reload()
+        val psi = myFixture.configureByText("a.txt", text)
+        val path = service.relativePath(psi.virtualFile)!!
+        store.create(Draft("open", anchors = listOf(AnchorResolver.capture(path, text, 1, 1))))
+        val decorator = project.service<EditorDecorator>()
+        decorator.start()
+        decorator.refresh()
+        val document = myFixture.editor.document
+        val mark = DocumentMarkupModel.forDocument(document, project, true).allHighlighters
+            .single { it.gutterIconRenderer is TodoGutterRenderer }
+
+        WriteCommandAction.runWriteCommandAction(project) { document.deleteString(0, document.textLength) }
+        assertFalse(mark.isValid)
+
+        decorator.refresh()
+        assertEquals(emptyList<String>(), decorator.decoratedIds(document))
     }
 
     fun `test every anchored range of an item gets a mark and a whole file gets none`() {
