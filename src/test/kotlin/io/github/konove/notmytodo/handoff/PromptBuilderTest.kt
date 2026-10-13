@@ -6,6 +6,7 @@ import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Priority
+import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -251,5 +252,25 @@ class PromptBuilderTest {
     fun `the effort is said after the priority`() {
         val p = PromptBuilder.build(anchored.copy(effort = Effort.S), files, "")
         assertTrue(p, p.startsWith("Fix TODO item T-14 (priority p1, effort s, tags: perf, pathing)."))
+    }
+
+    @Test
+    fun `a prompt that may reach no agent has the agent mark the item in progress itself`() {
+        val claim = PromptOptions(claim = true)
+        val p = PromptBuilder.build(anchored, files, "", claim)
+        assertTrue(p, p.contains("Before you start, call the todo_update tool with id \"T-14\" and status \"in_progress\""))
+        assertTrue(p, p.contains("set \"status\": \"in_progress\" for this item in .todos/items.json"))
+        assertTrue(p.indexOf("\"in_progress\"") < p.indexOf("status \"fixed\""))
+        assertFalse(PromptBuilder.build(anchored, files, "").contains("in_progress"))
+        // Only an open item is taken up: one in progress is there already, and a closed one is not reopened.
+        for (status in Status.entries - Status.OPEN) {
+            assertFalse(PromptBuilder.build(anchored.copy(status = status), files, "", claim).contains("in_progress"))
+        }
+        val waiting = PromptBuilder.build(anchored.copy(tags = listOf("needs-decision")), files, "", claim)
+        assertTrue(waiting, waiting.indexOf("status \"in_progress\"") in 0 until waiting.indexOf("Do not change anything else yet"))
+        val comment = TodoItem(id = "src/unit.txt:3", title = "TODO: tidy")
+        assertFalse(PromptBuilder.build(comment, files, "", claim).contains("in_progress"))
+        val all = PromptBuilder.buildAll(listOf(anchored, anchored.copy(id = "T-15")), files, claim)
+        assertTrue(all, all.contains("id \"T-14\" and status \"in_progress\"") && all.contains("id \"T-15\" and status \"in_progress\""))
     }
 }

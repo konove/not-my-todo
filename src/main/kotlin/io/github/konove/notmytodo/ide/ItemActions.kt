@@ -72,15 +72,32 @@ object ItemActions {
     /** Shows the handoff dialog and sends the prompt for a TODO comment found in the code. Nothing is stored. */
     fun fixComment(project: Project, item: TodoItem) = handOff(project, item)
 
-    /** Shows the handoff dialog, sends the prompt, and marks the item in progress. */
+    /**
+     * Shows the handoff dialog, sends the prompt, and marks the item in progress. A prompt that
+     * went to the clipboard may reach no agent, so it has the agent do the marking.
+     */
     fun fix(project: Project, id: String) {
         project.service<AnchorTracker>().flushAll()
         val store = TodoService.getInstance(project).store
         val item = store.find(id) ?: return
-        if (handOff(project, Links(store.items).shown(item))) setStatus(project, id, Status.IN_PROGRESS)
+        val target = handOff(project, Links(store.items).shown(item)) ?: return
+        if (target != FixTarget.CLIPBOARD) setStatus(project, id, Status.IN_PROGRESS)
     }
 
-    private fun handOff(project: Project, item: TodoItem): Boolean {
+    /**
+     * The prompt a row of the list carries when it is dragged out, say onto a terminal where Claude
+     * Code runs, or copied. Nothing is known of where it lands, so the status is left alone and
+     * the prompt has the agent mark the item in progress.
+     */
+    fun dragPrompt(project: Project, row: TodoItem): String {
+        project.service<AnchorTracker>().flushAll()
+        val store = TodoService.getInstance(project).store
+        val item = if (CodeTodos.isCode(row)) row else Links(store.items).shown(store.find(row.id) ?: row)
+        return PromptBuilder.build(item, fileTexts(project, listOf(item)), "", promptOptions(project).copy(claim = true))
+    }
+
+    /** Where the prompt went, or null when the dialog was cancelled. */
+    private fun handOff(project: Project, item: TodoItem): FixTarget? {
         val values = TodoSettings.getInstance().values
         val files = fileTexts(project, listOf(item))
         val options = promptOptions(project)
@@ -89,10 +106,10 @@ object ItemActions {
         val prompt: String
         if (values.skipFixDialog) {
             target = TargetChoice.choose(values.defaultTarget, available).target
-            prompt = PromptBuilder.build(item, files, "", options)
+            prompt = PromptBuilder.build(item, files, "", options.copy(claim = target == FixTarget.CLIPBOARD))
         } else {
             val dialog = HandoffDialog(project, item, files, available, values.defaultTarget, options)
-            if (!dialog.showAndGet()) return false
+            if (!dialog.showAndGet()) return null
             target = dialog.target
             prompt = dialog.prompt
             if (dialog.skipNextTime) {
@@ -104,7 +121,7 @@ object ItemActions {
             }
         }
         deliver(project, target, prompt, listOf(item.id))
-        return true
+        return target
     }
 
     private fun promptOptions(project: Project): PromptOptions = TodoSettings.getInstance().values
@@ -157,7 +174,8 @@ object ItemActions {
 
     /**
      * Sends every one of [shown] that is still to be done to Claude in one prompt, after asking.
-     * Tracked items are marked in progress; TODO comments from the code are sent as they are.
+     * Tracked items are marked in progress, or by the agent when the prompt goes to the clipboard;
+     * TODO comments from the code are sent as they are.
      */
     fun fixAll(project: Project, shown: List<TodoItem>) {
         val service = TodoService.getInstance(project)
@@ -188,15 +206,16 @@ object ItemActions {
         }
         val tracked = items.filterNot(CodeTodos::isCode)
         val names = items.take(8).joinToString(", ") { it.id } + if (items.size > 8) ", ..." else ""
-        val after = (if (tracked.isEmpty()) "" else " and mark the tracked ones in progress") +
+        val copied = target == FixTarget.CLIPBOARD
+        val after = (if (tracked.isEmpty() || copied) "" else " and mark the tracked ones in progress") +
             if (held > 0) "? $held that need your decision are left out" else ""
         val answer = Messages.showYesNoDialog(
             project, "Send ${items.size} items ($names) to $where$after${if (held > 0) "." else "?"}", "Fix with Claude", null,
         )
         if (answer != Messages.YES) return
         val links = Links(TodoService.getInstance(project).store.items)
-        val prompt = PromptBuilder.buildAll(items.map(links::shown), fileTexts(project, items), promptOptions(project))
+        val prompt = PromptBuilder.buildAll(items.map(links::shown), fileTexts(project, items), promptOptions(project).copy(claim = copied))
         deliver(project, target, prompt, items.map { it.id })
-        tracked.forEach { setStatus(project, it.id, Status.IN_PROGRESS) }
+        if (!copied) tracked.forEach { setStatus(project, it.id, Status.IN_PROGRESS) }
     }
 }

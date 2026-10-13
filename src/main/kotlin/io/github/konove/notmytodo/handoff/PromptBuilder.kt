@@ -3,6 +3,7 @@ package io.github.konove.notmytodo.handoff
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
 import io.github.konove.notmytodo.model.TodoItem
 
@@ -10,12 +11,15 @@ import io.github.konove.notmytodo.model.TodoItem
  * How a prompt is written. [contextLines] is the code shown either side of the item's lines.
  * With [short] the agent is sent to `todo_get` and no code is embedded. [extra] is appended once
  * to every prompt. [itemsFile] is named as the fallback for an agent without the tools.
+ * With [claim] the agent is told to mark an open item in progress before it starts: for a prompt
+ * that may never reach an agent, where the IDE cannot know that the work has begun.
  */
 data class PromptOptions(
     val contextLines: Int = 20,
     val short: Boolean = false,
     val extra: String = "",
     val itemsFile: String = ".todos/items.json",
+    val claim: Boolean = false,
 )
 
 /** Builds the text handed to an agent for one item. The files are the text of each anchored file, by its path. */
@@ -73,8 +77,14 @@ object PromptBuilder {
             out.append("If you could not resolve it, leave the comment and explain why.\n")
             return out.toString()
         }
+        val claimed = options.claim && item.status == Status.OPEN
+        if (claimed) {
+            out.append("\nBefore you start, call the todo_update tool with id \"${item.id}\" and status \"in_progress\", ")
+            out.append("which shows the user that the item is being worked on. ")
+            out.append("If that tool is not available, set \"status\": \"in_progress\" for this item in ${options.itemsFile}.\n")
+        }
         if (item.needsDecision) {
-            decision(out, item, options)
+            decision(out, item, options, claimed)
             return out.toString()
         }
         out.append("\nWhen you have finished, call the todo_update tool with id \"${item.id}\" and status \"fixed\". ")
@@ -88,8 +98,8 @@ object PromptBuilder {
     }
 
     /** An item that waits for me: the agent lays out the options and asks, and only then does the work. */
-    private fun decision(out: StringBuilder, item: TodoItem, options: PromptOptions) {
-        out.append("\nDo not change anything yet. Work out what has to be decided and give the user the options, ")
+    private fun decision(out: StringBuilder, item: TodoItem, options: PromptOptions, claimed: Boolean) {
+        out.append("\nDo not change anything ${if (claimed) "else " else ""}yet. Work out what has to be decided and give the user the options, ")
         out.append("each with what it means and what it costs, and say which one you recommend. ")
         out.append("Then ask the user to choose and wait for the answer. ")
         out.append("If you have a tool for asking the user a question, use it.\n")

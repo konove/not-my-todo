@@ -46,7 +46,14 @@ AI agent take items off your hands.
   or the whole file when nothing is selected, and the arrows beside the place step through them.
   An anchor on a whole file follows the file when it is renamed or moved.
 - **Fix with Claude:** sends an item, with its code and 20 lines either side, to
-  Claude Code in a terminal tab or to the clipboard.
+  Claude Code in a terminal tab or to the clipboard. A sent item is marked in
+  progress; a prompt on the clipboard may reach no agent, so it leaves the
+  status alone and asks the agent to mark the item itself.
+- **Drag to a session:** drag a row of the list onto a terminal where Claude
+  Code is running, in the IDE or outside it, and the item's prompt lands in
+  Claude's input for you to send. Copying a row gives the same text. The
+  status is not changed; the prompt asks the agent to mark the item in
+  progress.
 - **Settings:** Settings, Tools, Not My TODO. The default fix target, the command
   that starts Claude, the lines of context, a short prompt that sends the agent
   to `todo_get`, extra instructions for every prompt, the Fix All limit, the

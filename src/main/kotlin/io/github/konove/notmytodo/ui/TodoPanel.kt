@@ -63,6 +63,9 @@ import java.awt.Container
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.GraphicsEnvironment
+import java.awt.datatransfer.StringSelection
+import java.awt.datatransfer.Transferable
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -78,6 +81,7 @@ import javax.swing.KeyStroke
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
+import javax.swing.TransferHandler
 import javax.swing.event.DocumentEvent
 
 /** An icon button for a toolbar; shown only while [visible] holds. */
@@ -211,6 +215,14 @@ class TodoPanel(
         })
         table.fixedCellHeight = JBUI.scale(ROW_HEIGHT)
         table.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        // A row can be dragged onto a terminal where Claude Code runs, which takes it as pasted text.
+        // Swing refuses to switch dragging on where there is no screen, as in the tests.
+        if (!GraphicsEnvironment.isHeadless()) table.dragEnabled = true
+        table.transferHandler = object : TransferHandler() {
+            override fun getSourceActions(c: JComponent): Int = COPY
+
+            override fun createTransferable(c: JComponent): Transferable? = dragText(table.selectedValue)?.let(::StringSelection)
+        }
         table.emptyText.text = "No items. Select code and choose Add TODO."
         table.addListSelectionListener { if (!it.valueIsAdjusting && !refreshing) detail.show(selected) }
         object : DoubleClickListener() {
@@ -341,6 +353,9 @@ class TodoPanel(
         },
         IconAction("Fix All Shown with Claude", AllIcons.Actions.Lightning) { ItemActions.fixAll(project, listed) },
     )
+
+    /** The text [row] is dragged or copied as: the prompt for its item, and nothing for a heading. */
+    internal fun dragText(row: Any?): String? = (row as? ItemRow)?.let { ItemActions.dragPrompt(project, it.item) }
 
     /** Whether [item]'s file is in the scope picked in the toolbar. Notes and files that are gone always are. */
     private fun inFileScope(item: TodoItem): Boolean {

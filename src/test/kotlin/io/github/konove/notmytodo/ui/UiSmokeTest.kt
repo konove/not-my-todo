@@ -46,6 +46,32 @@ class UiSmokeTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test a dragged row carries its prompt, and neither the drag nor a copy changes the status`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("cache findPath"))
+        val panel = TodoPanel(project)
+        try {
+            val dragged = panel.dragText(ItemRow(item, 0, false, 0, 0, item.priority))!!
+            assertTrue(dragged, dragged.startsWith("Fix TODO item T-1 "))
+            assertTrue(dragged, dragged.contains("status \"in_progress\""))
+            assertNull(panel.dragText(GroupHeader("k", "group", 1, false)))
+            assertNull(panel.dragText(null))
+            assertEquals(Status.OPEN, store.find(item.id)!!.status)
+
+            TodoSettings.getInstance().update(TodoSettings.getInstance().values.apply {
+                skipFixDialog = true
+                defaultTarget = io.github.konove.notmytodo.settings.FixTarget.CLIPBOARD
+            })
+            io.github.konove.notmytodo.ide.ItemActions.fix(project, item.id)
+            val copied = com.intellij.openapi.ide.CopyPasteManager.getInstance()
+                .getContents<String>(java.awt.datatransfer.DataFlavor.stringFlavor)
+            assertEquals(dragged, copied)
+            assertEquals(Status.OPEN, store.find(item.id)!!.status)
+        } finally {
+            Disposer.dispose(panel)
+        }
+    }
+
     fun `test a click on the Tags heading folds the tags and leaves the selection alone`() {
         TodoService.getInstance(project).store.create(Draft("tagged", tags = listOf("x")))
         val panel = TodoPanel(project)

@@ -45,6 +45,18 @@ class HandoffDialogTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test a prompt for the clipboard has the agent mark the item in progress, and one for a terminal tab has not`() {
+        val a = Availability(channelOn = false, sessionConnected = false, terminal = true)
+        for ((wanted, claims) in listOf(FixTarget.TERMINAL to false, FixTarget.CLIPBOARD to true)) {
+            val dialog = HandoffDialog(project, item, emptyMap(), a, wanted)
+            try {
+                assertEquals(claims, dialog.prompt.contains("status \"in_progress\""))
+            } finally {
+                dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
+            }
+        }
+    }
+
     fun `test a phrase goes into the done-when text and the prompt, and comes out again`() {
         val a = Availability(channelOn = false, sessionConnected = false, terminal = true)
         val dialog = HandoffDialog(project, item, emptyMap(), a, FixTarget.TERMINAL)

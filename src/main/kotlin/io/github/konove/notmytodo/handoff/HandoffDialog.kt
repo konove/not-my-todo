@@ -66,7 +66,8 @@ class HandoffDialog(
         toolTipText = "Switch the dialog back on in Settings | Tools | Not My TODO."
     }
 
-    val prompt: String get() = PromptBuilder.build(item, files, doneWhen.text, options)
+    /** What goes to the clipboard may reach no agent, so there the agent marks the item in progress itself. */
+    val prompt: String get() = PromptBuilder.build(item, files, doneWhen.text, options.copy(claim = target == FixTarget.CLIPBOARD))
     val target: FixTarget get() = targets.entries.first { it.value.isSelected }.key
 
     /** True when the dialog is to be skipped from now on, and prompts sent to [target]. */
@@ -87,7 +88,12 @@ class HandoffDialog(
     init {
         title = "Fix ${item.id} with Claude"
         ButtonGroup().apply { targets.values.forEach(::add) }
-        targets.values.forEach { it.addActionListener { setOKButtonText(sendText) } }
+        targets.values.forEach {
+            it.addActionListener {
+                setOKButtonText(sendText)
+                showPrompt()
+            }
+        }
         setOKButtonText(sendText)
         doneWhen.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) = showPrompt()
