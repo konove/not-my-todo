@@ -83,6 +83,27 @@ class ItemFilterTest {
     }
 
     @Test
+    fun `sort by id goes by number whatever the priority`() {
+        assertEquals(listOf("T-1", "T-2", "T-10"), ids(ItemQuery(sort = ItemSort.ID)))
+        assertEquals(listOf("T-1", "T-2", "T-3", "T-9", "T-10"), ids(ItemQuery(showClosed = true, sort = ItemSort.ID)))
+    }
+
+    @Test
+    fun `sorted by id a part still follows its parent`() {
+        val early = TodoItem("T-1", "early", parent = "T-3")
+        val between = TodoItem("T-2", "between")
+        val whole = TodoItem("T-3", "whole")
+        val late = TodoItem("T-4", "late", parent = "T-3")
+        val all = listOf(early, between, whole, late)
+        val shown = ItemFilter.apply(all, ItemQuery(sort = ItemSort.ID))
+        assertEquals(listOf("T-1", "T-2", "T-3", "T-4"), shown.map { it.id })
+        assertEquals(
+            listOf("T-2" to 0, "T-3" to 0, "T-1" to 1, "T-4" to 1),
+            ItemGroups.rows(shown, GroupBy.NONE, emptySet(), Links(all)).map { (it as ItemRow).item.id to it.depth },
+        )
+    }
+
+    @Test
     fun `rows are grouped under headings and collapsed groups keep only the heading`() {
         val shown = ItemFilter.apply(items, ItemQuery())
         assertEquals(shown.map { ItemRow(it) }, ItemGroups.rows(shown, GroupBy.NONE, emptySet()))

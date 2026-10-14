@@ -13,7 +13,7 @@ enum class Scope(val label: String) {
 }
 
 enum class ItemSort(val label: String) {
-    PRIORITY("Priority"), UPDATED("Last Updated"), FILE("File")
+    PRIORITY("Priority"), UPDATED("Last Updated"), FILE("File"), ID("ID")
 }
 
 /**
@@ -58,6 +58,7 @@ object ItemFilter {
             ItemSort.UPDATED -> compareByDescending<TodoItem> { it.updated }.then(byPriority)
             // Notes have no file and go last.
             ItemSort.FILE -> compareBy<TodoItem>({ it.anchor == null }, { it.anchor?.path }, { it.anchor?.startLine }).then(byPriority)
+            ItemSort.ID -> compareBy { it.number }
         }
     }
 
