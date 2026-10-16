@@ -1,6 +1,9 @@
 package io.github.konove.notmytodo.ide
 
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.TestStore
 import io.github.konove.notmytodo.model.Status
@@ -107,5 +110,54 @@ class TodoServiceTest : BasePlatformTestCase() {
         }
         service.store.create(Draft("not heard"))
         assertEquals(1, told.get())
+    }
+
+    private fun waitFor(timeoutMs: Long, done: () -> Boolean): Boolean {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+            if (done()) return true
+            Thread.sleep(20)
+        }
+        return done()
+    }
+
+    fun `test a change another process writes is read when the watcher reports it`() {
+        val told = AtomicInteger()
+        val listener: () -> Unit = { told.incrementAndGet() }
+        service.addListener(listener)
+        try {
+            // Another Store over the same folder reads and writes as an agent's server would, with its own cache.
+            val other = Store(StoreService.getInstance().store.root)
+            other.items(service.store.key).create(Draft("from an agent"))
+            assertTrue(service.changed(listOf(service.store.dir.itemFile("T-1").toString().replace('\\', '/'))))
+            assertTrue(waitFor(5000) { service.store.find("T-1") != null })
+            assertTrue(told.get() > 0)
+        } finally {
+            service.removeListener(listener)
+        }
+    }
+
+    fun `test a change to another project's files is not read`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("elsewhere").writeRecord(ProjectRecord("elsewhere"))
+        assertFalse(service.changed(listOf(stores.dir("elsewhere").itemFile("T-1").toString().replace('\\', '/'))))
+        assertFalse(service.changed(listOf(service.base.resolve("src/a.txt").toString().replace('\\', '/'))))
+    }
+
+    fun `test an item file that cannot be read is said once`() {
+        val shown = ArrayList<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) {
+                shown.add(notification)
+            }
+        })
+        service.store.create(Draft("fine"))
+        Files.writeString(service.store.dir.itemFile("T-7"), "{ hand-edited")
+        service.reload()
+        service.reload()
+        assertEquals(listOf("An item file in the store cannot be read"), shown.map { it.title })
+        assertTrue(shown.single().content, shown.single().content.contains("T-7.json"))
+        assertEquals(listOf("fine"), service.store.items.map { it.title })
     }
 }

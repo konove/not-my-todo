@@ -79,8 +79,6 @@ class AnchorTracker(private val project: Project) : Disposable {
         })
         connection.subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
             override fun after(events: List<VFileEvent>) {
-                // items.json may be part of the same batch (a branch switch); read it first.
-                store.reload()
                 events.forEach(::onFileEvent)
             }
         })

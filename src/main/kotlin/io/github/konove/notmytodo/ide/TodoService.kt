@@ -1,6 +1,12 @@
 package io.github.konove.notmytodo.ide
 
+import com.intellij.ide.actions.RevealFileAction
+import com.intellij.notification.NotificationAction
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationActivationListener
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -8,10 +14,16 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.openapi.wm.IdeFrame
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.settings.TodoProjectSettings
 import io.github.konove.notmytodo.store.ItemStore
@@ -22,6 +34,7 @@ import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -36,9 +49,12 @@ class TodoService(private val project: Project) : Disposable {
     val base: Path get() = Path.of(project.basePath ?: System.getProperty("java.io.tmpdir"))
 
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
-    private val relay: () -> Unit = { fire() }
+    private val relay: () -> Unit = { tellUnreadable(); fire() }
 
     private val notices = ImportNotices(project)
+
+    /** The unreadable item files already said, by project and file, so that each is said once. */
+    private val toldUnreadable = ConcurrentHashMap.newKeySet<String>()
 
     /** The folder anchors are relative to: the root of the repository, which may be a folder above [base]. */
     @Volatile
@@ -57,6 +73,22 @@ class TodoService(private val project: Project) : Disposable {
 
     init {
         store.addListener(relay)
+        tellUnreadable()
+        project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
+            override fun after(events: List<VFileEvent>) {
+                // A folder another process made reports the changes of its files only once the IDE has seen them.
+                val projects = projectsPath()
+                events.filterIsInstance<VFileCreateEvent>().filter { it.isDirectory && it.path.startsWith(projects) }
+                    .mapNotNull { it.file }.forEach { VfsUtil.markDirtyAndRefresh(true, true, true, it) }
+                changed(events.map { it.path })
+            }
+        })
+        // The application's bus: this topic is not passed on to the projects' buses.
+        val app = ApplicationManager.getApplication().messageBus.connect(this)
+        app.subscribe(ApplicationActivationListener.TOPIC, object : ApplicationActivationListener {
+            // What the watcher missed is read when the user comes back to the IDE, say from the terminal an agent ran in.
+            override fun applicationActivated(ideFrame: IdeFrame) = reloadLater()
+        })
     }
 
     /** Told after every change to the items, on whichever thread made it. A listener must not wait for the event thread. */
@@ -79,6 +111,26 @@ class TodoService(private val project: Project) : Disposable {
         }
         return store.reload()
     }
+
+    /**
+     * Asks for the items to be read again when [paths], changed on disk, include a file of the store
+     * project. While the project could not be opened, any change in the store may be the one that
+     * lets it. Returns true when it asked.
+     */
+    internal fun changed(paths: List<String>): Boolean {
+        val mine = store.dir.path.toString().replace('\\', '/')
+        val wanted = if (available) mine else projectsPath().removeSuffix("/")
+        if (paths.none { it == wanted || it.startsWith("$wanted/") }) return false
+        reloadLater()
+        return true
+    }
+
+    /** Reads the items again away from the event thread: it reads files, and opening the project again may wait for the lock. */
+    private fun reloadLater() {
+        ApplicationManager.getApplication().executeOnPooledThread { if (!project.isDisposed) reload() }
+    }
+
+    private fun projectsPath(): String = StoreService.getInstance().store.root.resolve("projects").toString().replace('\\', '/') + "/"
 
     /** Finds the store project again: after it was renamed, or when it could not be opened before. */
     fun reopen() {
@@ -136,6 +188,22 @@ class TodoService(private val project: Project) : Disposable {
         available = false
         val stores = StoreService.getInstance().store
         return ItemStore.unavailable(ProjectDir(stores.root), stores.lock, why ?: "the store cannot be opened")
+    }
+
+    /** Says, once each, which item files of the store project cannot be read: they are left out of the list. */
+    private fun tellUnreadable() {
+        val items = store
+        val fresh = items.unreadable.filter { toldUnreadable.add("${items.key}/${it.file}") }
+        if (fresh.isEmpty()) return
+        val title = if (fresh.size == 1) "An item file in the store cannot be read" else "${fresh.size} item files in the store cannot be read"
+        val content = fresh.joinToString("<br>") { StringUtil.escapeXmlEntities("${it.file}: ${it.problem}") } +
+            "<br>Such a file is left as it is and out of the list, and its id is not given out again."
+        NotificationGroupManager.getInstance().getNotificationGroup("Not My TODO")
+            .createNotification(title, content, NotificationType.WARNING)
+            .addAction(NotificationAction.createSimpleExpiring("Show the Items Folder") {
+                RevealFileAction.openDirectory(items.dir.path.resolve("items"))
+            })
+            .notify(project)
     }
 
     private fun fire() {
