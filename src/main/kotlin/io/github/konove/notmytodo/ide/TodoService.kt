@@ -13,12 +13,14 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.konove.notmytodo.model.Links
+import io.github.konove.notmytodo.settings.TodoProjectSettings
 import io.github.konove.notmytodo.store.ItemStore
 import io.github.konove.notmytodo.store.ProjectDir
 import io.github.konove.notmytodo.store.StoreException
 import java.io.IOException
 import java.io.UncheckedIOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -35,6 +37,8 @@ class TodoService(private val project: Project) : Disposable {
 
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
     private val relay: () -> Unit = { fire() }
+
+    private val notices = ImportNotices(project)
 
     /** The folder anchors are relative to: the root of the repository, which may be a folder above [base]. */
     @Volatile
@@ -93,23 +97,38 @@ class TodoService(private val project: Project) : Disposable {
     fun links(): Links = Links(store.items, StoreService.getInstance().store::find)
 
     /**
-     * The store project of [base], made when there is none. It may wait for the store's lock, up to
-     * five seconds, when another writer holds it.
+     * The store project of [base], made when there is none, with the items of the items file 0.2
+     * kept there imported into it. It may wait for the store's lock, up to five seconds, when
+     * another writer holds it.
      */
     private fun open(): ItemStore {
         val stores = StoreService.getInstance().store
+        val held = project.service<HeldStatuses>()
         return try {
-            val resolution = stores.resolve(base)
-            val record = stores.ensure(resolution).record
-            root = resolution.root ?: base.toAbsolutePath().normalize()
+            val opened = ProjectOpener(stores).open(base, legacyFile(), held.held())
+            root = opened.root
             available = true
-            stores.items(record.key)
+            opened.legacy?.let {
+                if (it is ProjectOpener.Legacy.Imported) held.clear()
+                notices.tell(opened.items.key, base, it)
+            }
+            opened.items
         } catch (e: StoreException) {
             unavailable(e.message)
         } catch (e: IOException) {
             unavailable(e.message)
         } catch (e: UncheckedIOException) {
             unavailable(e.message)
+        }
+    }
+
+    /** The items file of 0.2: .todos/items.json, or the file its project setting named. */
+    private fun legacyFile(): Path {
+        val named = TodoProjectSettings.getInstance(project).itemsFile.trim().ifEmpty { TodoProjectSettings.DEFAULT_ITEMS_FILE }
+        return try {
+            base.resolve(named).normalize()
+        } catch (_: InvalidPathException) {
+            base.resolve(TodoProjectSettings.DEFAULT_ITEMS_FILE)
         }
     }
 
