@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.ide
 
+import io.github.konove.notmytodo.TestStore
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -9,6 +10,7 @@ import io.github.konove.notmytodo.store.Draft
 import io.github.konove.notmytodo.store.StoreException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicInteger
 
 class TodoServiceTest : BasePlatformTestCase() {
     private lateinit var service: TodoService
@@ -16,8 +18,7 @@ class TodoServiceTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         service = TodoService.getInstance(project)
-        Files.deleteIfExists(service.store.file)
-        service.store.reload()
+        TestStore.reset(project)
     }
 
     override fun tearDown() {
@@ -108,5 +109,19 @@ class TodoServiceTest : BasePlatformTestCase() {
         WriteCommandAction.runWriteCommandAction(project) { myFixture.editor.document.insertString(0, "typed ") }
         assertEquals("typed disk\n", service.readText(relative))
         assertNull(service.readText("no/such/file.txt"))
+    }
+
+    fun `test listeners added to the service hear every change`() {
+        val told = AtomicInteger()
+        val listener: () -> Unit = { told.incrementAndGet() }
+        service.addListener(listener)
+        try {
+            service.store.create(Draft("heard"))
+            assertEquals(1, told.get())
+        } finally {
+            service.removeListener(listener)
+        }
+        service.store.create(Draft("not heard"))
+        assertEquals(1, told.get())
     }
 }

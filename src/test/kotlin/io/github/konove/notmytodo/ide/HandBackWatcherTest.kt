@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.ide
 
+import io.github.konove.notmytodo.TestStore
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.components.service
@@ -16,8 +17,7 @@ class HandBackWatcherTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        Files.deleteIfExists(store.file)
-        store.reload()
+        TestStore.reset(project)
         project.service<HandBackWatcher>().start()
         project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
             override fun notify(notification: Notification) {

@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
@@ -15,12 +16,14 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.settings.TodoProjectSettings
 import io.github.konove.notmytodo.settings.TodoSettingsListener
 import io.github.konove.notmytodo.store.ItemStore
 import io.github.konove.notmytodo.store.ItemsFilePath
 import io.github.konove.notmytodo.store.StoreException
 import java.nio.file.Path
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** Owns the project's item store and maps between project-relative paths and files. */
 @Service(Service.Level.PROJECT)
@@ -28,9 +31,13 @@ class TodoService(private val project: Project) : Disposable {
     /** The project root, which the items file path is relative to. */
     val base: Path get() = Path.of(project.basePath ?: System.getProperty("java.io.tmpdir"))
 
+    private val listeners = CopyOnWriteArrayList<() -> Unit>()
+    private val relay: () -> Unit = { fire() }
+
     val store = ItemStore(configuredFile(), keeper = project.service<HeldStatuses>())
 
     init {
+        store.addListener(relay)
         project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
             override fun after(events: List<VFileEvent>) {
                 // The store can be pointed at another file, so ask it each time.
@@ -41,6 +48,31 @@ class TodoService(private val project: Project) : Disposable {
         // Make the file known to the IDE so its watcher reports outside edits.
         store.addListener { watchFile() }
         watchFile()
+    }
+
+    /** Told after every change to the items, on whichever thread made it. A listener must not wait for the event thread. */
+    fun addListener(l: () -> Unit) {
+        listeners += l
+    }
+
+    fun removeListener(l: () -> Unit) {
+        listeners -= l
+    }
+
+    /** Reads the items again. Returns true when they changed. */
+    fun reload(): Boolean = store.reload()
+
+    /** How the project's items refer to each other. */
+    fun links(): Links = Links(store.items)
+
+    private fun fire() {
+        for (listener in listeners) {
+            try {
+                listener()
+            } catch (e: Exception) {
+                logger<TodoService>().warn("A Not My TODO listener failed", e)
+            }
+        }
     }
 
     private fun watchFile() {
@@ -106,7 +138,9 @@ class TodoService(private val project: Project) : Disposable {
         FileDocumentManager.getInstance().getCachedDocument(file)?.text ?: runCatching { VfsUtilCore.loadText(file) }.getOrNull()
     }
 
-    override fun dispose() {}
+    override fun dispose() {
+        store.removeListener(relay)
+    }
 
     companion object {
         fun getInstance(project: Project): TodoService = project.service()

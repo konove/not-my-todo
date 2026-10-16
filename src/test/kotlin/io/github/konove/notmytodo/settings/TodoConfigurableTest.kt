@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.settings
 
+import io.github.konove.notmytodo.TestStore
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.channel.ChannelRegistration
@@ -15,9 +16,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         // No items file on disk, so changing its path never has to ask about moving it.
-        val store = TodoService.getInstance(project).store
-        java.nio.file.Files.deleteIfExists(store.file)
-        store.reload()
+        TestStore.reset(project)
         // No real `claude` is run from tests: this registration finds no Claude Code.
         page = TodoConfigurable(project, ChannelRegistration(Files.createTempDirectory("nmt-page")) { null })
         page.createComponent()

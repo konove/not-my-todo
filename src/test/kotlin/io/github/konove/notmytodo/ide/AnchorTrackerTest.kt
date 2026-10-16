@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.ide
 
+import io.github.konove.notmytodo.TestStore
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
@@ -19,9 +20,8 @@ class AnchorTrackerTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         service = TodoService.getInstance(project)
+        TestStore.reset(project)
         store = service.store
-        Files.deleteIfExists(store.file)
-        store.reload()
         tracker = project.service()
         tracker.start()
     }

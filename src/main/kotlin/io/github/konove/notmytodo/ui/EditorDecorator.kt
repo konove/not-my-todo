@@ -19,7 +19,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
-import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.settings.TodoSettings
@@ -52,7 +51,7 @@ class EditorDecorator(private val project: Project) : Disposable {
     fun start() {
         if (started) return
         started = true
-        service.store.addListener {
+        service.addListener {
             ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
         }
         project.messageBus.connect(this).subscribe(
@@ -74,7 +73,7 @@ class EditorDecorator(private val project: Project) : Disposable {
         if (!TodoSettings.getInstance().values.editorMarks) return
         val items = service.store.items.filter { item -> !item.isClosed && item.anchors.any(::marked) }
         if (items.isEmpty()) return
-        val links = Links(service.store.items)
+        val links = service.links()
         for (file in FileEditorManager.getInstance(project).openFiles) {
             val path = service.relativePath(file) ?: continue
             val document = FileDocumentManager.getInstance().getCachedDocument(file) ?: continue

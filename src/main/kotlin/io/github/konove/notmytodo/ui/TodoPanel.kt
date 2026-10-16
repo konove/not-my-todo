@@ -48,7 +48,6 @@ import io.github.konove.notmytodo.ide.EditorAnchors
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
-import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -106,7 +105,7 @@ class TodoPanel(
     private val onSummary: (String) -> Unit = {},
 ) : JPanel(BorderLayout()), Disposable {
     private val service = TodoService.getInstance(project)
-    private val store = service.store
+    private val store get() = service.store
     private val navModel = CollectionListModel<Nav>()
     private var navByMouse = false
     internal val nav = object : JBList<Nav>(navModel) {
@@ -294,7 +293,7 @@ class TodoPanel(
         body.add(errorCard, ERROR_CARD)
         add(body, BorderLayout.CENTER)
 
-        store.addListener(storeListener)
+        service.addListener(storeListener)
         project.messageBus.connect(this).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
             object : FileEditorManagerListener {
@@ -327,7 +326,7 @@ class TodoPanel(
         Separator.getInstance(),
         ShowClosedAction(),
         IconAction("Reload", AllIcons.Actions.Refresh) {
-            store.reload()
+            service.reload()
             refresh()
             rescan()
         },
@@ -444,7 +443,7 @@ class TodoPanel(
             else ItemFilter.apply(
                 all, ItemQuery(search.text, scope, currentPath, showClosed, tag, priorities, statuses, authors, sort),
             )
-            model.replaceAll(ItemGroups.rows(listed, groupBy, collapsed, Links(store.items)))
+            model.replaceAll(ItemGroups.rows(listed, groupBy, collapsed, service.links()))
             val index = model.items.indexOfFirst {
                 if (selectedHeader != null) (it as? GroupHeader)?.key == selectedHeader
                 else (it as? ItemRow)?.item?.id == selectedId
@@ -464,7 +463,7 @@ class TodoPanel(
     }
 
     override fun dispose() {
-        store.removeListener(storeListener)
+        service.removeListener(storeListener)
     }
 
     private inner class ShowClosedAction : ToggleAction("Show Closed", null, AllIcons.Actions.Show), DumbAware {

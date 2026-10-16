@@ -91,7 +91,7 @@ class AnchorTracker(private val project: Project) : Disposable {
                 alarm.addRequest({ flushAll() }, FLUSH_DELAY_MS)
             }
         }, this)
-        store.addListener {
+        service.addListener {
             ApplicationManager.getApplication().invokeLater({ syncChanged() }, project.disposed)
         }
         syncChanged()

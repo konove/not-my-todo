@@ -16,7 +16,7 @@ import java.nio.file.Path
 @Service(Service.Level.PROJECT)
 class HandBackWatcher(private val project: Project) : Disposable {
     // Held, not looked up, so that it can still be let go of when the project is closing.
-    private val store = TodoService.getInstance(project).store
+    private val service = TodoService.getInstance(project)
     private val listener = { check() }
     private var started = false
 
@@ -28,14 +28,15 @@ class HandBackWatcher(private val project: Project) : Disposable {
     fun start() {
         if (started) return
         started = true
-        file = store.file
-        items = store.items
-        store.addListener(listener)
+        file = service.store.file
+        items = service.store.items
+        service.addListener(listener)
     }
 
     /** Called by the store on whichever thread made the change. */
     private fun check() {
         val found = synchronized(this) {
+            val store = service.store
             val before = items
             // Another file is another list: the same id there is not the same item.
             val same = file == store.file
@@ -74,7 +75,7 @@ class HandBackWatcher(private val project: Project) : Disposable {
     }
 
     override fun dispose() {
-        store.removeListener(listener)
+        service.removeListener(listener)
     }
 
     private companion object {

@@ -502,7 +502,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (shown == null || fixedInField.text == oneLine(shown.fixedIn)) fixedInField.text = oneLine(item.fixedIn)
         if (shown == null || resolutionField.text == oneLine(shown.resolution)) resolutionField.text = oneLine(item.resolution)
         val code = CodeTodos.isCode(item)
-        val links = if (code) Links.NONE else Links(store.items)
+        val links = if (code) Links.NONE else TodoService.getInstance(project).links()
         showLinks(item, links)
         // A parent's priority is that of its open parts, so there is nothing to choose while it has any.
         val fromParts = links.hasOpenParts(item)

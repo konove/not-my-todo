@@ -13,7 +13,6 @@ import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
-import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -35,7 +34,7 @@ object ItemPopup {
         val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
         val panel = JPanel(BorderLayout(0, JBUI.scale(10))).apply {
             border = JBUI.Borders.empty(12, 14, 10, 14)
-            val links = Links(store.items)
+            val links = TodoService.getInstance(project).links()
             add(content(item, links.isBlocked(item), links.priority(item)), BorderLayout.CENTER)
             add(buttonRow, BorderLayout.SOUTH)
         }

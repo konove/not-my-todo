@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.ui
 
+import io.github.konove.notmytodo.TestStore
 import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Author
@@ -21,9 +22,7 @@ class UiSmokeTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        val store = TodoService.getInstance(project).store
-        Files.deleteIfExists(store.file)
-        store.reload()
+        TestStore.reset(project)
     }
 
     fun `test panel builds, selects an item and shows the error state`() {

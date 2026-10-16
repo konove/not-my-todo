@@ -16,7 +16,6 @@ import io.github.konove.notmytodo.handoff.HandoffDialog
 import io.github.konove.notmytodo.handoff.PromptBuilder
 import io.github.konove.notmytodo.handoff.PromptOptions
 import io.github.konove.notmytodo.handoff.TargetChoice
-import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -35,7 +34,7 @@ object ItemActions {
     fun setStatus(project: Project, id: String, status: Status) {
         val store = TodoService.getInstance(project).store
         if (status == Status.DONE || status == Status.WONT_FIX) {
-            val open = Links(store.items).children(id).count { !it.isClosed }
+            val open = TodoService.getInstance(project).links().children(id).count { !it.isClosed }
             val parts = if (open == 1) "1 open part" else "$open open parts"
             if (open > 0 && Messages.showYesNoDialog(project, "$id still has $parts. Close it anyway?", "Not My TODO", null) != Messages.YES) return
         }
@@ -80,7 +79,7 @@ object ItemActions {
         project.service<AnchorTracker>().flushAll()
         val store = TodoService.getInstance(project).store
         val item = store.find(id) ?: return
-        val target = handOff(project, Links(store.items).shown(item)) ?: return
+        val target = handOff(project, TodoService.getInstance(project).links().shown(item)) ?: return
         if (target != FixTarget.CLIPBOARD) setStatus(project, id, Status.IN_PROGRESS)
     }
 
@@ -92,7 +91,7 @@ object ItemActions {
     fun dragPrompt(project: Project, row: TodoItem): String {
         project.service<AnchorTracker>().flushAll()
         val store = TodoService.getInstance(project).store
-        val item = if (CodeTodos.isCode(row)) row else Links(store.items).shown(store.find(row.id) ?: row)
+        val item = if (CodeTodos.isCode(row)) row else TodoService.getInstance(project).links().shown(store.find(row.id) ?: row)
         return PromptBuilder.build(item, fileTexts(project, listOf(item)), "", promptOptions(project).copy(claim = true))
     }
 
@@ -213,7 +212,7 @@ object ItemActions {
             project, "Send ${items.size} items ($names) to $where$after${if (held > 0) "." else "?"}", "Fix with Claude", null,
         )
         if (answer != Messages.YES) return
-        val links = Links(TodoService.getInstance(project).store.items)
+        val links = TodoService.getInstance(project).links()
         val prompt = PromptBuilder.buildAll(items.map(links::shown), fileTexts(project, items), promptOptions(project).copy(claim = copied))
         deliver(project, target, prompt, items.map { it.id })
         if (!copied) tracked.forEach { setStatus(project, it.id, Status.IN_PROGRESS) }
