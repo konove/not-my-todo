@@ -6,6 +6,9 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileVisitor
 import io.github.konove.notmytodo.store.Store
 import io.github.konove.notmytodo.store.StoreRoot
 import java.io.IOException
@@ -35,8 +38,18 @@ class StoreService : Disposable {
             return
         }
         watch = LocalFileSystem.getInstance().addRootToWatch(projects.toString(), true)
-        // A change is reported only for a file the IDE has seen, so it is shown every one there once.
-        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(projects)?.let { VfsUtil.markDirtyAndRefresh(true, true, true, it) }
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(projects)?.let(::seeAll)
+    }
+
+    /**
+     * Shows the IDE every file under [dir], a folder of the store's projects, once: the watcher reports
+     * a change only for a file the IDE has seen, and a refresh looks only one level into a folder it
+     * has not. Symbolic links are not followed, so nothing outside the folder is looked at. Lists
+     * the whole folder: not for the event thread.
+     */
+    internal fun seeAll(dir: VirtualFile) {
+        VfsUtilCore.visitChildrenRecursively(dir, object : VirtualFileVisitor<Any>(VirtualFileVisitor.NO_FOLLOW_SYMLINKS) {})
+        VfsUtil.markDirtyAndRefresh(true, true, true, dir)
     }
 
     override fun dispose() {

@@ -3,6 +3,8 @@ package io.github.konove.notmytodo.ide
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.TestStore
@@ -13,6 +15,7 @@ import io.github.konove.notmytodo.store.Store
 import io.github.konove.notmytodo.store.StoreException
 import org.junit.Assert.assertThrows
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 
 class TodoServiceTest : BasePlatformTestCase() {
@@ -159,5 +162,49 @@ class TodoServiceTest : BasePlatformTestCase() {
         assertEquals(listOf("An item file in the store cannot be read"), shown.map { it.title })
         assertTrue(shown.single().content, shown.single().content.contains("T-7.json"))
         assertEquals(listOf("fine"), service.store.items.map { it.title })
+    }
+
+    fun `test an item file that cannot be read is said when the project is opened again`() {
+        val shown = ArrayList<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) {
+                shown.add(notification)
+            }
+        })
+        val dir = StoreService.getInstance().store.dir(service.store.key)
+        Files.writeString(dir.path.resolve("project.json"), "{ broken")
+        service.reopen()
+        assertFalse(service.available)
+        Files.createDirectories(dir.itemFile("T-3").parent)
+        Files.writeString(dir.itemFile("T-3"), "{ hand-edited")
+        dir.writeRecord(ProjectRecord(dir.path.fileName.toString(), checkouts = listOf(service.root.toString())))
+        assertTrue(service.reload())
+        assertTrue(service.available)
+        assertEquals(listOf("An item file in the store cannot be read"), shown.map { it.title })
+        assertTrue(shown.single().content, shown.single().content.contains("T-3.json"))
+    }
+
+    /** True when the IDE has seen [path], without looking on disk: only then does the watcher report its changes. */
+    private fun seen(path: Path) = LocalFileSystem.getInstance().findFileByPathIfCached(path.toString().replace('\\', '/')) != null
+
+    fun `test every file of a project folder is seen once the store is watched`() {
+        val made = StoreService.getInstance().store.root.resolve("projects/there-before")
+        val item = made.resolve("items/T-1.json")
+        Files.createDirectories(item.parent)
+        Files.writeString(item, "{}")
+        StoreService.getInstance().seeAll(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(made)!!)
+        assertTrue(waitFor(5000) { seen(item) })
+    }
+
+    fun `test every file of a project folder another process made is seen`() {
+        val projects = StoreService.getInstance().store.root.resolve("projects")
+        val known = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(projects)!!
+        VfsUtil.markDirtyAndRefresh(false, true, true, known)
+        val item = projects.resolve("made-elsewhere/items/T-1.json")
+        Files.createDirectories(item.parent)
+        Files.writeString(item, "{}")
+        // The refresh that tells the IDE of the new folder, as the watcher would.
+        VfsUtil.markDirtyAndRefresh(false, false, true, known)
+        assertTrue(waitFor(5000) { seen(item) })
     }
 }

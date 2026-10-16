@@ -76,10 +76,13 @@ class TodoService(private val project: Project) : Disposable {
         tellUnreadable()
         project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
             override fun after(events: List<VFileEvent>) {
-                // A folder another process made reports the changes of its files only once the IDE has seen them.
+                // A folder another process made reports the changes of its files only once the IDE has seen
+                // them all. They are looked at on a pooled thread: this may run on the event thread.
                 val projects = projectsPath()
                 events.filterIsInstance<VFileCreateEvent>().filter { it.isDirectory && it.path.startsWith(projects) }
-                    .mapNotNull { it.file }.forEach { VfsUtil.markDirtyAndRefresh(true, true, true, it) }
+                    .mapNotNull { it.file }.forEach { dir ->
+                        ApplicationManager.getApplication().executeOnPooledThread { if (dir.isValid) StoreService.getInstance().seeAll(dir) }
+                    }
                 changed(events.map { it.path })
             }
         })
@@ -142,7 +145,7 @@ class TodoService(private val project: Project) : Disposable {
                 store = next
             }
         }
-        fire()
+        relay()
     }
 
     /** How the project's items refer to each other and to the items of other projects. */
