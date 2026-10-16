@@ -34,6 +34,24 @@ class TodoServiceTest : BasePlatformTestCase() {
         assertEquals(listOf(service.root.toString()), record.checkouts)
     }
 
+    fun `test after a rename the listeners still hear changes, and the items are written in the renamed folder`() {
+        val told = AtomicInteger()
+        val listener: () -> Unit = { told.incrementAndGet() }
+        service.addListener(listener)
+        try {
+            service.store.create(Draft("before"))
+            service.rename("renamed")
+            assertEquals("renamed", service.store.key)
+            assertEquals(listOf("before"), service.store.items.map { it.title })
+            val heard = told.get()
+            val item = service.store.create(Draft("after"))
+            assertTrue(told.get() > heard)
+            assertTrue(Files.exists(StoreService.getInstance().store.dir("renamed").itemFile(item.id)))
+        } finally {
+            service.removeListener(listener)
+        }
+    }
+
     fun `test accepting a fix is written at once`() {
         service.store.create(Draft("fixed by an agent"))
         service.store.update("T-1") { it.copy(status = Status.FIXED) }

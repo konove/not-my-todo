@@ -4,7 +4,10 @@ import io.github.konove.notmytodo.TestStore
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.channel.ChannelRegistration
+import io.github.konove.notmytodo.ide.StoreService
+import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
+import io.github.konove.notmytodo.store.Draft
 import com.intellij.testFramework.PlatformTestUtil
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
@@ -90,7 +93,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
     }
 
     fun `test store saves the values`() {
-        page.store(TodoSettings.Values(fixAllLimit = 12, defaultPriority = Priority.P1, extraInstructions = "Be brief."))
+        page.store(TodoSettings.Values(fixAllLimit = 12, defaultPriority = Priority.P1, extraInstructions = "Be brief."), page.key)
         val saved = TodoSettings.getInstance().values
         assertEquals(12, saved.fixAllLimit)
         assertEquals(Priority.P1, saved.defaultPriority)
@@ -99,7 +102,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
 
     fun `test an empty command is refused and nothing is saved`() {
         try {
-            page.store(TodoSettings.Values(claudeCommand = "  ", fixAllLimit = 12))
+            page.store(TodoSettings.Values(claudeCommand = "  ", fixAllLimit = 12), page.key)
             fail("expected a ConfigurationException")
         } catch (e: ConfigurationException) {
             assertTrue(e.localizedMessage.contains("command"))
@@ -109,7 +112,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
 
     fun `test the running session cannot be the default target while the channel is off`() {
         try {
-            page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = false))
+            page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = false), page.key)
             fail("expected a ConfigurationException")
         } catch (e: ConfigurationException) {
             assertTrue(e.localizedMessage.contains("running session"))
@@ -118,8 +121,35 @@ class TodoConfigurableTest : BasePlatformTestCase() {
     }
 
     fun `test the running session can be the default target with the channel on`() {
-        page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = true))
+        page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = true), page.key)
         assertEquals(FixTarget.SESSION, TodoSettings.getInstance().values.defaultTarget)
         assertTrue(TodoSettings.getInstance().values.channelEnabled)
+    }
+
+    fun `test a new key renames the store project and its items go with it`() {
+        val service = TodoService.getInstance(project)
+        service.store.create(Draft("travels"))
+        page.store(TodoSettings.Values(), "Renamed")
+        assertEquals("renamed", service.store.key)
+        assertEquals(listOf("travels"), service.store.items.map { it.title })
+        assertTrue(Files.isDirectory(StoreService.getInstance().store.dir("renamed").path))
+    }
+
+    fun `test a key that cannot be one is refused with the reason and nothing is saved`() {
+        val before = TodoService.getInstance(project).store.key
+        try {
+            page.store(TodoSettings.Values(fixAllLimit = 12), "not a key!")
+            fail("expected a ConfigurationException")
+        } catch (e: ConfigurationException) {
+            assertTrue(e.localizedMessage, e.localizedMessage.contains("cannot be a project key"))
+        }
+        assertEquals(before, TodoService.getInstance(project).store.key)
+        assertEquals(50, TodoSettings.getInstance().values.fixAllLimit)
+    }
+
+    fun `test the page shows the store's folder and the project's key`() {
+        val fields = com.intellij.util.ui.UIUtil.findComponentsOfType(page.createComponent(), javax.swing.JTextField::class.java).map { it.text }
+        assertTrue(fields.toString(), StoreService.getInstance().store.root.toString() in fields)
+        assertTrue(fields.toString(), TodoService.getInstance(project).store.key in fields)
     }
 }

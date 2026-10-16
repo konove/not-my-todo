@@ -148,6 +148,16 @@ class TodoService(private val project: Project) : Disposable {
         relay()
     }
 
+    /**
+     * Renames the store project to [key]. Every link to it, in every project, is rewritten with it,
+     * and the project is opened again under its new key. Throws [StoreException] and changes nothing
+     * when the key cannot be used.
+     */
+    fun rename(key: String) {
+        StoreService.getInstance().store.rename(store.key, key)
+        reopen()
+    }
+
     /** The folder of the store project's item files, which an agent without the tools can edit. */
     val itemsDir: Path get() = store.dir.path.resolve("items")
 

@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.settings
 
+import com.intellij.ide.actions.RevealFileAction
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
@@ -14,6 +15,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.COLUMNS_LARGE
+import com.intellij.ui.dsl.builder.COLUMNS_MEDIUM
 import com.intellij.ui.dsl.builder.bindIntValue
 import com.intellij.ui.dsl.builder.bindItem
 import com.intellij.ui.dsl.builder.bindSelected
@@ -26,7 +28,11 @@ import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.channel.ChannelRegistration
 import io.github.konove.notmytodo.channel.ChannelServer
 import io.github.konove.notmytodo.handoff.ClaudeLauncher
+import io.github.konove.notmytodo.ide.StoreService
+import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
+import io.github.konove.notmytodo.store.StoreException
+import io.github.konove.notmytodo.store.StoreRoot
 import java.awt.datatransfer.StringSelection
 import java.io.IOException
 import javax.swing.JButton
@@ -39,6 +45,7 @@ class TodoConfigurable(
     constructor(project: Project) : this(project, ChannelRegistration())
 
     internal var draft = TodoSettings.getInstance().values
+    internal var key = TodoService.getInstance(project).store.key
 
     private val bridgeStatus = JBLabel("Checking...")
     private val bridgeProblem = JBLabel().apply {
@@ -139,31 +146,69 @@ class TodoConfigurable(
                 checkBox("Show the Code comments entry").bindSelected({ draft.codeComments }, { draft.codeComments = it })
             }
         }
+        group("This Project") {
+            val service = TodoService.getInstance(project)
+            val record = service.store.project
+            row("Key:") {
+                textField().columns(COLUMNS_MEDIUM)
+                    .bindText({ key }, { key = it })
+                    .enabled(service.available)
+                    .comment("Items of other projects name this one's as ${service.store.key}/T-1. Renaming rewrites every such link.")
+            }
+            row("Remotes:") { label(record?.remotes?.joinToString(", ").orEmpty().ifEmpty { "none" }) }
+            row("Checkouts:") { label(record?.checkouts?.joinToString(", ").orEmpty().ifEmpty { "none" }) }
+        }
+        group("Store") {
+            val root = StoreService.getInstance().store.root
+            row("Folder:") {
+                textField().columns(COLUMNS_LARGE).applyToComponent {
+                    text = root.toString()
+                    isEditable = false
+                }
+                link("Show") { RevealFileAction.openDirectory(root) }
+            }
+            row {
+                comment(
+                    "Shared by every project on this machine and by the notmytodo-store server. " +
+                        "Set ${StoreRoot.ENV} before starting the IDE to use another folder."
+                )
+            }
+        }
     }
 
     override fun reset() {
         draft = TodoSettings.getInstance().values
+        key = TodoService.getInstance(project).store.key
         super.reset()
         refreshChannel()
     }
 
     override fun apply() {
         super.apply()
-        store(draft)
+        store(draft, key)
         refreshChannel()
     }
 
     /** True also after a refused Apply, which has copied the controls into [draft] without saving them. */
-    override fun isModified(): Boolean = super.isModified() || draft != TodoSettings.getInstance().values
+    override fun isModified(): Boolean = super.isModified() || draft != TodoSettings.getInstance().values ||
+        key.trim() != TodoService.getInstance(project).store.key
 
     /**
      * Checks and saves what the page holds. Everything is checked before anything is saved, so a
      * refusal leaves all settings as they were.
      */
-    internal fun store(values: TodoSettings.Values) {
+    internal fun store(values: TodoSettings.Values, key: String) {
         if (values.claudeCommand.isBlank()) throw ConfigurationException("Type the command that starts Claude Code.")
         if (values.defaultTarget == FixTarget.SESSION && !values.channelEnabled) {
             throw ConfigurationException("Switch on sending to a running session before making it the default target.")
+        }
+        val service = TodoService.getInstance(project)
+        if (service.available && key.trim() != service.store.key) {
+            try {
+                service.rename(key)
+            } catch (e: StoreException) {
+                throw ConfigurationException(e.message)
+            }
         }
         TodoSettings.getInstance().update(values)
     }
