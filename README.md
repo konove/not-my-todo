@@ -58,7 +58,7 @@ AI agent take items off your hands.
   that starts Claude, the lines of context, a short prompt that sends the agent
   to `todo_get`, extra instructions for every prompt, the Fix All limit, the
   default priority, the editor marks, the Code comments entry, whether Fix
-  skips its dialog, and where this project keeps its items file.
+  skips its dialog, and this project's key in the store, with its remotes and checkouts, and the store's folder.
 - **Running session (research preview):** with "Send to a running Claude Code
   session" switched on in the settings, Fix can put its prompt straight into a
   Claude Code session that is already running in the project, in any terminal.
@@ -71,22 +71,23 @@ AI agent take items off your hands.
 
 ## Data
 
-Items are stored in `.todos/items.json` in the project root, unless the settings
-name another file for the project. Commit it or add `.todos/` to `.gitignore`;
-the plugin does not decide for you. IDs are `T-1`, `T-2`, ... and are never
-reused.
+Items are kept outside the repositories, in one store per machine:
+`~/.local/share/not-my-todo-store` on Linux (or under `$XDG_DATA_HOME`),
+`~/Library/Application Support/not-my-todo-store` on macOS,
+`%LOCALAPPDATA%\not-my-todo-store` on Windows, or the folder that
+`NOT_MY_TODO_STORE` names. Each repository is a project there, found by its
+checkout or by its remote, and each item is a JSON file of its own:
+`projects/<key>/items/T-12.json`. IDs are `T-1`, `T-2`, ... within a project
+and are never reused; from another project an item is `key/T-12`. Items that
+belong to no repository go into the project `inbox`.
 
-Accepting a fix does not change the file on its own: the fix is usually
-committed by then, with the item as `fixed`, and a change of one word would
-ask for a commit of its own. The item is shown as done at once, in the panel
-and to the MCP tools, and `done` is written with the next change to the file,
-whichever item it is to. Until then the IDE remembers it in its workspace
-file, and the items file still says `fixed`. A Done you set on your own work
-is written straight away, to go into your commit.
+The first time the IDE opens a project with 0.3.0, the items of its
+`.todos/items.json` are moved into the store with their ids, and a balloon
+offers to delete the file. The file is never written again.
 
 ## For agents
 
-With the IDE's MCP server enabled, these tools are available:
+The `todo_*` tools come from the `notmytodo-store` server of [not-my-todo-store](../not-my-todo-store), which Claude Code starts for every session, in any folder and whether or not the IDE runs. Install it from that repository with `./gradlew installServer`; the plugin says so when Claude Code lacks it. Every tool takes `project`: a key, `inbox`, or a folder; `todo_list` with `project: "*"` lists every project.
 
 | Tool | Purpose |
 |---|---|
@@ -98,11 +99,10 @@ With the IDE's MCP server enabled, these tools are available:
 | `todo_decided` | Record what you were asked about an item and what you answered: each question, the options offered and the answer; the `needs-decision` tag is taken away |
 | `todo_batch` | Create or change several items in one call, saved as one write: all of them or, when one is wrong, none; `comment` on an entry adds a comment to that item, `path`, `startLine` and `places` re-attach it, and `ref` on a new item lets the entries after it name it as `$ref` |
 | `todo_delete` | Delete an item the agent made, when no other item is its part, is blocked by it or is a duplicate of it |
+| `todo_projects` | The projects: key, remotes, checkouts on this machine, and how many items are open, need a decision and are fixed |
+| `todo_move` | Move an item, with its parts when asked, to another project; every link to it follows |
 
-Without MCP, read `.todos/items.json` directly. Line numbers there are as of
-the last time that item was saved: lines that only moved are not written, so
-find the code by the anchor's `text`. An item that says `fixed` there may
-already be accepted: see Data.
+Without the server, an item can be read in its file in the store. Line numbers there are as of the last time that item was saved: lines that only moved are not written, so find the code by the anchor's `text`.
 
 ## Build
 

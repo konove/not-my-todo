@@ -17,19 +17,39 @@
                 a whole file as well as to lines.</li>
             <li><b>Fix with Claude:</b> sends an item, with its code and the lines around it, to
                 Claude Code in a terminal tab or to the clipboard.</li>
-            <li><b>MCP tools:</b> with the IDE's MCP server enabled, agents can use
+            <li><b>Agents anywhere:</b> with the notmytodo-store server of not-my-todo-store registered with
+                Claude Code, every Claude Code session, in any folder and whether or not the IDE runs, has
                 <code>todo_list</code>, <code>todo_get</code>, <code>todo_create</code>,
                 <code>todo_update</code>, <code>todo_comment</code>, <code>todo_batch</code>,
-                <code>todo_decided</code> and <code>todo_delete</code> to read items, add their own, comment on them, record
-                what was decided, and mark them fixed.</li>
+                <code>todo_decided</code>, <code>todo_delete</code>, <code>todo_projects</code> and
+                <code>todo_move</code> to read items, add their own, comment on them, record what was
+                decided, and mark them fixed. The IDE shows what they change as they change it.</li>
         </ul>
-        <p>Items are stored in <code>.todos/items.json</code> in the project root, so an agent
-            without MCP can read the file directly.</p>
+        <p>Items are kept outside the repositories, in one store per machine
+            (<code>~/.local/share/not-my-todo-store</code> on Linux), one JSON file per item. The first
+            time a project is opened, the items of its <code>.todos/items.json</code> are moved there.</p>
         <p>Requires a JetBrains IDE version 2026.2 or newer.</p>
         <p>Open source under the Apache 2.0 license. Source code and issue tracker:
             <a href="https://github.com/konove/not-my-todo">github.com/konove/not-my-todo</a>.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <p><b>0.3.0</b></p>
+        <ul>
+            <li>Items are kept in one store per machine, outside the repositories, shared with the
+                not-my-todo-store server. Each repository is a project there, found by its checkout or its
+                remote; items of no repository go into <code>inbox</code>.</li>
+            <li>The first time a project is opened, the items of its <code>.todos/items.json</code> are moved
+                into the store with their ids, and a balloon offers to delete the file. The file is never
+                written again.</li>
+            <li>The todo tools come from the notmytodo-store server, which every Claude Code session starts,
+                in any folder, with or without the IDE. The IDE's MCP server no longer serves them; a balloon
+                says how to install the server when Claude Code lacks it.</li>
+            <li>Changes an agent makes outside the IDE show at once.</li>
+            <li>Accepting a fix is written at once: there is no file in the repository to keep it out of.</li>
+            <li>The settings show the store's folder and the project's key, remotes and checkouts; the key
+                can be renamed, and every link to the project follows. The items-file setting is gone.</li>
+            <li>Before Fix hands an item over, the files it is anchored in are saved.</li>
+        </ul>
         <p><b>0.2.0</b></p>
         <ul>
             <li>Items can be attached to several places, and to a whole file as well as to lines.</li>
