@@ -32,11 +32,16 @@ repositories {
 dependencies {
     intellijPlatform {
         clion(clionVersion)
-        bundledPlugin("com.intellij.mcpServer")
         bundledPlugin("org.jetbrains.plugins.terminal")
         pluginVerifier()
         zipSigner()
         testFramework(TestFrameworkType.Platform)
+    }
+    // The IDE has its own Kotlin standard library and gson; the plugin must not bring a second copy.
+    implementation("io.github.konove:not-my-todo-store-core:0.1.0") {
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains", module = "annotations")
+        exclude(group = "com.google.code.gson")
     }
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.opentest4j:opentest4j:1.3.0")
@@ -68,7 +73,9 @@ intellijPlatform {
 
 tasks.test {
     // CLion's bundled C++ backend plugins break light test fixtures; tests need only the platform.
-    systemProperty("idea.load.plugins.id", "io.github.konove.notmytodo,com.intellij.mcpServer,org.jetbrains.plugins.terminal")
+    systemProperty("idea.load.plugins.id", "io.github.konove.notmytodo,org.jetbrains.plugins.terminal")
     // The channel writes a port file per project; tests must not write into the user's own cache.
     systemProperty("notmytodo.cacheDir", layout.buildDirectory.dir("test-cache").get().asFile.path)
+    // Nor into the user's own store.
+    systemProperty("notmytodo.storeRoot", layout.buildDirectory.dir("test-store").get().asFile.path)
 }

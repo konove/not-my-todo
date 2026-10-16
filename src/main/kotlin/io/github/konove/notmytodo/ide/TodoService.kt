@@ -1,7 +1,6 @@
 package io.github.konove.notmytodo.ide
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -13,41 +12,47 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.openapi.vfs.newvfs.BulkFileListener
-import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import io.github.konove.notmytodo.model.Links
-import io.github.konove.notmytodo.settings.TodoProjectSettings
-import io.github.konove.notmytodo.settings.TodoSettingsListener
 import io.github.konove.notmytodo.store.ItemStore
-import io.github.konove.notmytodo.store.ItemsFilePath
+import io.github.konove.notmytodo.store.ProjectDir
 import io.github.konove.notmytodo.store.StoreException
+import java.io.IOException
+import java.io.UncheckedIOException
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** Owns the project's item store and maps between project-relative paths and files. */
+/**
+ * Owns the store project of the IDE project, and maps between the paths its anchors have and files.
+ * The project is found in the machine's store for the IDE project's folder, and made there when it
+ * has none. The listeners are kept here and not on the store's items, so that they stay when the
+ * project is opened again: after a rename, or once a project that could not be opened can be.
+ */
 @Service(Service.Level.PROJECT)
 class TodoService(private val project: Project) : Disposable {
-    /** The project root, which the items file path is relative to. */
+    /** The IDE project's folder. */
     val base: Path get() = Path.of(project.basePath ?: System.getProperty("java.io.tmpdir"))
 
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
     private val relay: () -> Unit = { fire() }
 
-    val store = ItemStore(configuredFile(), keeper = project.service<HeldStatuses>())
+    /** The folder anchors are relative to: the root of the repository, which may be a folder above [base]. */
+    @Volatile
+    var root: Path = base
+        private set
+
+    /** False while the store project could not be opened: [store] then holds nothing and says why. */
+    @Volatile
+    var available = false
+        private set
+
+    // Declared after everything open() sets, so that their initial values do not overwrite what it set.
+    @Volatile
+    var store: ItemStore = open()
+        private set
 
     init {
         store.addListener(relay)
-        project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
-            override fun after(events: List<VFileEvent>) {
-                // The store can be pointed at another file, so ask it each time.
-                val target = store.file.toString().replace('\\', '/')
-                if (events.any { it.path == target }) store.reload()
-            }
-        })
-        // Make the file known to the IDE so its watcher reports outside edits.
-        store.addListener { watchFile() }
-        watchFile()
     }
 
     /** Told after every change to the items, on whichever thread made it. A listener must not wait for the event thread. */
@@ -59,11 +64,60 @@ class TodoService(private val project: Project) : Disposable {
         listeners -= l
     }
 
-    /** Reads the items again. Returns true when they changed. */
-    fun reload(): Boolean = store.reload()
+    /**
+     * Reads the items again. A project that could not be opened, or whose folder is gone (renamed in
+     * another window), is opened again instead. Returns true when the items may have changed.
+     */
+    fun reload(): Boolean {
+        if (!available || !Files.isDirectory(store.dir.path)) {
+            reopen()
+            return true
+        }
+        return store.reload()
+    }
 
-    /** How the project's items refer to each other. */
-    fun links(): Links = Links(store.items)
+    /** Finds the store project again: after it was renamed, or when it could not be opened before. */
+    fun reopen() {
+        synchronized(this) {
+            val next = open()
+            if (next !== store) {
+                store.removeListener(relay)
+                next.addListener(relay)
+                store = next
+            }
+        }
+        fire()
+    }
+
+    /** How the project's items refer to each other and to the items of other projects. */
+    fun links(): Links = Links(store.items, StoreService.getInstance().store::find)
+
+    /**
+     * The store project of [base], made when there is none. It may wait for the store's lock, up to
+     * five seconds, when another writer holds it.
+     */
+    private fun open(): ItemStore {
+        val stores = StoreService.getInstance().store
+        return try {
+            val resolution = stores.resolve(base)
+            val record = stores.ensure(resolution).record
+            root = resolution.root ?: base.toAbsolutePath().normalize()
+            available = true
+            stores.items(record.key)
+        } catch (e: StoreException) {
+            unavailable(e.message)
+        } catch (e: IOException) {
+            unavailable(e.message)
+        } catch (e: UncheckedIOException) {
+            unavailable(e.message)
+        }
+    }
+
+    private fun unavailable(why: String?): ItemStore {
+        available = false
+        val stores = StoreService.getInstance().store
+        return ItemStore.unavailable(ProjectDir(stores.root), stores.lock, why ?: "the store cannot be opened")
+    }
 
     private fun fire() {
         for (listener in listeners) {
@@ -75,61 +129,32 @@ class TodoService(private val project: Project) : Disposable {
         }
     }
 
-    private fun watchFile() {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            if (!project.isDisposed) LocalFileSystem.getInstance().refreshAndFindFileByNioFile(store.file)
-        }
-    }
-
-    /** The file named in the project settings, or the default one if that path can no longer be used. */
-    private fun configuredFile(): Path = try {
-        ItemsFilePath.resolve(base, TodoProjectSettings.getInstance(project).itemsFile)
-    } catch (_: StoreException) {
-        base.resolve(TodoProjectSettings.DEFAULT_ITEMS_FILE)
-    }
-
-    /**
-     * Stores the items in [relative] from now on. With [move] the current file is taken along
-     * when there is none at the new place. Throws [StoreException] and changes nothing when the
-     * path cannot be used.
-     */
-    fun useItemsFile(relative: String, move: Boolean) {
-        val file = ItemsFilePath.resolve(base, relative)
-        ItemsFilePath.requireWritable(base, file)
-        store.moveTo(file, move)
-        TodoProjectSettings.getInstance(project).itemsFile = relative.trim()
-        watchFile()
-        TodoSettingsListener.fire()
-    }
+    private val rootPath: String get() = root.toString().replace('\\', '/')
 
     fun relativePath(file: VirtualFile): String? = relativePath(file.path)
 
     fun relativePath(absolutePath: String): String? {
-        val roots = listOfNotNull(project.basePath) + ProjectRootManager.getInstance(project).contentRoots.map { it.path }
-        for (root in roots) {
-            if (absolutePath.startsWith("$root/")) return absolutePath.removePrefix("$root/")
+        val roots = listOf(rootPath) + listOfNotNull(project.basePath) + ProjectRootManager.getInstance(project).contentRoots.map { it.path }
+        for (r in roots.distinct()) {
+            if (absolutePath.startsWith("$r/")) return absolutePath.removePrefix("$r/")
         }
         return null
     }
 
     fun findFile(relativePath: String): VirtualFile? {
-        project.basePath?.let { base ->
-            LocalFileSystem.getInstance().findFileByPath("$base/$relativePath")?.let { return it }
-        }
+        LocalFileSystem.getInstance().findFileByPath("$rootPath/$relativePath")?.let { return it }
         return ProjectRootManager.getInstance(project).contentRoots
             .firstNotNullOfOrNull { it.findFileByRelativePath(relativePath) }
     }
 
     /** Brings the IDE's view of one file up to date with the disk. Do not call inside a read action. */
     fun refresh(relativePath: String) {
-        val base = project.basePath ?: return
-        LocalFileSystem.getInstance().refreshAndFindFileByPath("$base/$relativePath")?.refresh(false, false)
+        LocalFileSystem.getInstance().refreshAndFindFileByPath("$rootPath/$relativePath")?.refresh(false, false)
     }
 
     /** Brings the IDE's view of several files up to date with the disk, in one go. Do not call inside a read action. */
     fun refresh(relativePaths: Collection<String>) {
-        val base = project.basePath ?: return
-        val files = relativePaths.mapNotNull { LocalFileSystem.getInstance().refreshAndFindFileByPath("$base/$it") }
+        val files = relativePaths.mapNotNull { LocalFileSystem.getInstance().refreshAndFindFileByPath("$rootPath/$it") }
         if (files.isNotEmpty()) VfsUtil.markDirtyAndRefresh(false, false, false, *files.toTypedArray())
     }
 

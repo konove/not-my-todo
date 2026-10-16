@@ -8,7 +8,7 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 
-/** The options of one project. Kept in the workspace file, so they are not shared through version control. */
+/** Where 0.2 kept the items of one project, kept in the workspace file. Only read now, to import that file into the store. */
 @Service(Service.Level.PROJECT)
 @State(name = "NotMyTodoProject", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
 class TodoProjectSettings : PersistentStateComponent<TodoProjectSettings.Values> {
@@ -16,7 +16,7 @@ class TodoProjectSettings : PersistentStateComponent<TodoProjectSettings.Values>
 
     private var current = Values()
 
-    /** Where the items are stored, relative to the project root, with forward slashes. */
+    /** The items file 0.2 used, relative to the project root, with forward slashes. */
     var itemsFile: String
         get() = current.itemsFile
         set(value) {

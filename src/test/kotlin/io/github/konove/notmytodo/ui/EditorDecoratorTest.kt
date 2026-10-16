@@ -11,7 +11,6 @@ import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.store.Draft
-import java.nio.file.Files
 
 class EditorDecoratorTest : BasePlatformTestCase() {
     private val text = "one\ntwo\nthree\n"

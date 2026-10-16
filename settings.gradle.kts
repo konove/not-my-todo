@@ -4,3 +4,10 @@ plugins {
 }
 
 rootProject.name = "not-my-todo"
+
+// The store's core library, built from the sibling checkout until it is published.
+includeBuild("../not-my-todo-store") {
+    dependencySubstitution {
+        substitute(module("io.github.konove:not-my-todo-store-core")).using(project(":core"))
+    }
+}

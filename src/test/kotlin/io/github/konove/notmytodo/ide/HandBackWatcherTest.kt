@@ -7,9 +7,7 @@ import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Status
-import io.github.konove.notmytodo.settings.TodoProjectSettings
 import io.github.konove.notmytodo.store.Draft
-import java.nio.file.Files
 
 class HandBackWatcherTest : BasePlatformTestCase() {
     private val shown = ArrayList<Notification>()
@@ -71,23 +69,11 @@ class HandBackWatcherTest : BasePlatformTestCase() {
         assertEquals((1..5).joinToString("<br>") { "${items[it - 1].id} item $it" } + "<br>and 2 more", shown.single().content)
     }
 
-    fun `test switching to another items file reports nothing`() {
+    fun `test opening the store project again reports nothing on its own`() {
         val item = store.create(Draft("a", tags = listOf("needs-decision")))
-        val service = TodoService.getInstance(project)
-        val other = service.base.resolve("notes/todo.json")
-        Files.createDirectories(other.parent)
-        Files.copy(store.file, other)
-        try {
-            service.useItemsFile("notes/todo.json", move = false)
-            store.comment(item.id, Author.AGENT, "which?")
-            assertEquals(1, shown.size)
-            service.useItemsFile(TodoProjectSettings.DEFAULT_ITEMS_FILE, move = false)
-            // The same id in the other file has a comment this one lacks, but nobody has just written it.
-            service.useItemsFile("notes/todo.json", move = false)
-            assertEquals(1, shown.size)
-        } finally {
-            service.useItemsFile(TodoProjectSettings.DEFAULT_ITEMS_FILE, move = false)
-            Files.deleteIfExists(other)
-        }
+        store.comment(item.id, Author.AGENT, "which?")
+        assertEquals(1, shown.size)
+        TodoService.getInstance(project).reopen()
+        assertEquals(1, shown.size)
     }
 }

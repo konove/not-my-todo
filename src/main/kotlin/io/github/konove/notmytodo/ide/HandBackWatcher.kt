@@ -10,7 +10,6 @@ import com.intellij.openapi.util.text.StringUtil
 import io.github.konove.notmytodo.handoff.HandBack
 import io.github.konove.notmytodo.handoff.HandBacks
 import io.github.konove.notmytodo.model.TodoItem
-import java.nio.file.Path
 
 /** Shows a balloon when an agent comments on an item that waits for me or that is in progress, or says what I have to decide. */
 @Service(Service.Level.PROJECT)
@@ -21,14 +20,14 @@ class HandBackWatcher(private val project: Project) : Disposable {
     private var started = false
 
     // What the store held when it was last looked at. Read and written under the watcher's monitor.
-    private var file: Path? = null
+    private var key: String? = null
     private var items: List<TodoItem> = emptyList()
 
     @Synchronized
     fun start() {
         if (started) return
         started = true
-        file = service.store.file
+        key = service.store.key
         items = service.store.items
         service.addListener(listener)
     }
@@ -38,9 +37,9 @@ class HandBackWatcher(private val project: Project) : Disposable {
         val found = synchronized(this) {
             val store = service.store
             val before = items
-            // Another file is another list: the same id there is not the same item.
-            val same = file == store.file
-            file = store.file
+            // Another project is another list: the same id there is not the same item.
+            val same = key == store.key
+            key = store.key
             items = store.items
             if (same) HandBacks.between(before, items) else emptyList()
         }

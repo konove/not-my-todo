@@ -65,7 +65,6 @@
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
-    <depends optional="true" config-file="notmytodo-mcp.xml">com.intellij.mcpServer</depends>
     <depends optional="true" config-file="notmytodo-terminal.xml">org.jetbrains.plugins.terminal</depends>
 
     <extensions defaultExtensionNs="com.intellij">

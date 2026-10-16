@@ -1,5 +1,0 @@
-<idea-plugin>
-    <extensions defaultExtensionNs="com.intellij">
-        <mcpServer.mcpToolset implementation="io.github.konove.notmytodo.mcp.TodoToolset"/>
-    </extensions>
-</idea-plugin>

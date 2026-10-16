@@ -4,7 +4,6 @@ import io.github.konove.notmytodo.TestStore
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.channel.ChannelRegistration
-import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
 import com.intellij.testFramework.PlatformTestUtil
 import java.nio.file.Files
@@ -15,7 +14,6 @@ class TodoConfigurableTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        // No items file on disk, so changing its path never has to ask about moving it.
         TestStore.reset(project)
         // No real `claude` is run from tests: this registration finds no Claude Code.
         page = TodoConfigurable(project, ChannelRegistration(Files.createTempDirectory("nmt-page")) { null })
@@ -27,7 +25,6 @@ class TodoConfigurableTest : BasePlatformTestCase() {
         try {
             page.disposeUIResources()
             TodoSettings.getInstance().update(TodoSettings.Values())
-            TodoService.getInstance(project).useItemsFile(TodoProjectSettings.DEFAULT_ITEMS_FILE, move = false)
         } finally {
             super.tearDown()
         }
@@ -76,8 +73,8 @@ class TodoConfigurableTest : BasePlatformTestCase() {
 
     fun `test the page is still modified after a refused apply`() {
         val field = com.intellij.util.ui.UIUtil.findComponentsOfType(page.createComponent(), javax.swing.JTextField::class.java)
-            .first { it.text == defaultFile }
-        field.text = "../outside.json"
+            .first { it.text == "claude" }
+        field.text = "  "
         try {
             page.apply()
             fail("expected a ConfigurationException")
@@ -86,8 +83,6 @@ class TodoConfigurableTest : BasePlatformTestCase() {
         }
     }
 
-    private val defaultFile = TodoProjectSettings.DEFAULT_ITEMS_FILE
-
     fun `test a fresh page is not modified and applies cleanly`() {
         assertFalse(page.isModified)
         page.apply()
@@ -95,7 +90,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
     }
 
     fun `test store saves the values`() {
-        page.store(TodoSettings.Values(fixAllLimit = 12, defaultPriority = Priority.P1, extraInstructions = "Be brief."), defaultFile)
+        page.store(TodoSettings.Values(fixAllLimit = 12, defaultPriority = Priority.P1, extraInstructions = "Be brief."))
         val saved = TodoSettings.getInstance().values
         assertEquals(12, saved.fixAllLimit)
         assertEquals(Priority.P1, saved.defaultPriority)
@@ -104,7 +99,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
 
     fun `test an empty command is refused and nothing is saved`() {
         try {
-            page.store(TodoSettings.Values(claudeCommand = "  ", fixAllLimit = 12), defaultFile)
+            page.store(TodoSettings.Values(claudeCommand = "  ", fixAllLimit = 12))
             fail("expected a ConfigurationException")
         } catch (e: ConfigurationException) {
             assertTrue(e.localizedMessage.contains("command"))
@@ -112,26 +107,9 @@ class TodoConfigurableTest : BasePlatformTestCase() {
         assertEquals(TodoSettings.Values(), TodoSettings.getInstance().values)
     }
 
-    fun `test a bad items file is refused with the reason and nothing is saved`() {
-        try {
-            page.store(TodoSettings.Values(fixAllLimit = 12), "../outside.json")
-            fail("expected a ConfigurationException")
-        } catch (e: ConfigurationException) {
-            assertTrue(e.localizedMessage.contains("inside the project"))
-        }
-        assertEquals(defaultFile, TodoProjectSettings.getInstance(project).itemsFile)
-        assertEquals(50, TodoSettings.getInstance().values.fixAllLimit)
-    }
-
-    fun `test a new items file with nothing to move is taken into use`() {
-        page.store(TodoSettings.Values(), "notes/todo.json")
-        assertEquals("notes/todo.json", TodoProjectSettings.getInstance(project).itemsFile)
-        assertTrue(TodoService.getInstance(project).store.file.endsWith("notes/todo.json"))
-    }
-
     fun `test the running session cannot be the default target while the channel is off`() {
         try {
-            page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = false), defaultFile)
+            page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = false))
             fail("expected a ConfigurationException")
         } catch (e: ConfigurationException) {
             assertTrue(e.localizedMessage.contains("running session"))
@@ -140,7 +118,7 @@ class TodoConfigurableTest : BasePlatformTestCase() {
     }
 
     fun `test the running session can be the default target with the channel on`() {
-        page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = true), defaultFile)
+        page.store(TodoSettings.Values(defaultTarget = FixTarget.SESSION, channelEnabled = true))
         assertEquals(FixTarget.SESSION, TodoSettings.getInstance().values.defaultTarget)
         assertTrue(TodoSettings.getInstance().values.channelEnabled)
     }

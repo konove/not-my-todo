@@ -37,8 +37,8 @@ class UiSmokeTest : BasePlatformTestCase() {
         try {
             panel.select("T-1")
             panel.select("T-2")
-            Files.writeString(store.file, "{ broken")
-            store.reload()
+            Files.writeString(store.dir.path.resolve("project.json"), "{ broken")
+            service.reload()
             com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         } finally {
             Disposer.dispose(panel)

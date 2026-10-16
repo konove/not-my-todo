@@ -39,6 +39,9 @@ class AnchorTrackerTest : BasePlatformTestCase() {
         tracker.flushAll()
     }
 
+    /** The item as its file in the store has it, not as the store holds it in memory. */
+    private fun onDisk(id: String) = store.dir.read().items.single { it.id == id }
+
     fun `test anchor follows lines inserted above`() {
         val item = openWithItem("a.txt", 2, 3)
         edit { myFixture.editor.document.insertString(0, "zero\n") }
@@ -129,8 +132,8 @@ class AnchorTrackerTest : BasePlatformTestCase() {
 
     fun `test bookkeeping does not overwrite an anchor changed on disk`() {
         val item = openWithItem("k.txt", 2, 2)
-        val onDisk = Files.readString(store.file).replace("\"text\": \"two\"", "\"text\": \"from another branch\"")
-        Files.writeString(store.file, onDisk)
+        val file = store.dir.itemFile(item.id)
+        Files.writeString(file, Files.readString(file).replace("\"text\": \"two\"", "\"text\": \"from another branch\""))
         edit { myFixture.editor.document.insertString(0, "zero\n") }
         assertEquals("from another branch", store.find(item.id)!!.anchor!!.text)
     }
@@ -213,32 +216,32 @@ class AnchorTrackerTest : BasePlatformTestCase() {
         val item = store.create(Draft("t", anchors = listOf(AnchorResolver.capture(path, far, 6, 6))))
         tracker.syncFile(psi.virtualFile)
         val other = store.create(Draft("other"))
-        val written = Files.readString(store.file)
+        val written = store.dir.stamp()
         edit { myFixture.editor.document.insertString(0, "zero\n") }
         assertEquals(7, store.find(item.id)!!.anchor!!.startLine)
-        assertEquals(written, Files.readString(store.file))
+        assertEquals(written, store.dir.stamp())
         store.update(other.id) { it.copy(title = "renamed") }
-        assertFalse(Files.readString(store.file).contains("\"startLine\": 7"))
+        assertEquals(6, onDisk(item.id).anchor!!.startLine)
         store.update(item.id) { it.copy(title = "renamed too") }
-        assertTrue(Files.readString(store.file).contains("\"startLine\": 7"))
+        assertEquals(7, onDisk(item.id).anchor!!.startLine)
     }
 
     fun `test a change to the anchored code or to whether it is lost is written`() {
         val item = openWithItem("s.txt", 2, 2)
         edit { myFixture.editor.document.insertString(text.indexOf("two") + 3, "!") }
-        assertTrue(Files.readString(store.file).contains("\"text\": \"two!\""))
+        assertEquals("two!", onDisk(item.id).anchor!!.text)
         edit { myFixture.editor.document.deleteString(text.indexOf("two"), text.indexOf("three") + 1) }
         assertTrue(store.find(item.id)!!.anchor!!.lost)
-        assertTrue(Files.readString(store.file).contains("\"lost\": true"))
+        assertTrue(onDisk(item.id).anchor!!.lost)
     }
 
     fun `test lines the file has from before the code moved are put right without opening the file`() {
         val file = myFixture.addFileToProject("t.txt", "zero\n$far").virtualFile
         val path = service.relativePath(file)!!
         val item = store.create(Draft("t", anchors = listOf(AnchorResolver.capture(path, far, 6, 6))))
-        val written = Files.readString(store.file)
+        val written = store.dir.stamp()
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertEquals(7, store.find(item.id)!!.anchor!!.startLine)
-        assertEquals(written, Files.readString(store.file))
+        assertEquals(written, store.dir.stamp())
     }
 }

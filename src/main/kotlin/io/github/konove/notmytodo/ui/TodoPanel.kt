@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.actions.RevealFileAction
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.ide.util.scopeChooser.ScopeChooserCombo
 import com.intellij.openapi.Disposable
@@ -25,7 +26,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.DoubleClickListener
@@ -46,6 +47,7 @@ import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.EditorAnchors
 import io.github.konove.notmytodo.ide.ItemActions
+import io.github.konove.notmytodo.ide.StoreService
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
@@ -68,6 +70,7 @@ import java.awt.datatransfer.Transferable
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.nio.file.Files
 import java.time.Instant
 import javax.accessibility.AccessibleContext
 import javax.swing.DefaultListSelectionModel
@@ -287,7 +290,7 @@ class TodoPanel(
         val errorCard = JPanel(FlowLayout(FlowLayout.LEFT, 8, 8)).apply {
             border = JBUI.Borders.empty(8)
             add(errorLabel)
-            add(ActionLink("Open the Items File") { openDataFile() })
+            add(ActionLink("Show the Items Folder") { showItemsFolder() })
         }
         body.add(listCard, LIST_CARD)
         body.add(errorCard, ERROR_CARD)
@@ -330,7 +333,7 @@ class TodoPanel(
             refresh()
             rescan()
         },
-        IconAction("Open the Items File", AllIcons.FileTypes.Json) { openDataFile() },
+        IconAction("Show the Items Folder", AllIcons.Actions.MenuOpen) { showItemsFolder() },
     )
 
     private fun filterActions() = DefaultActionGroup(
@@ -407,7 +410,7 @@ class TodoPanel(
     private fun refresh() {
         val error = store.error
         if (error != null) {
-            errorLabel.text = "<html>${store.file.fileName} cannot be read:<br>$error</html>"
+            errorLabel.text = "<html>The items cannot be shown:<br>${StringUtil.escapeXmlEntities(error)}</html>"
             cards.show(body, ERROR_CARD)
             return
         }
@@ -457,9 +460,10 @@ class TodoPanel(
         detail.show(selected)
     }
 
-    private fun openDataFile() {
-        val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(store.file) ?: return
-        FileEditorManager.getInstance(project).openFile(file, true)
+    /** Shows the store project's folder in the system's file manager: the items are plain JSON files there. */
+    private fun showItemsFolder() {
+        val dir = store.dir.path.takeIf { Files.isDirectory(it) } ?: StoreService.getInstance().store.root
+        RevealFileAction.openDirectory(dir)
     }
 
     override fun dispose() {

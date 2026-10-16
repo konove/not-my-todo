@@ -1,15 +1,15 @@
 package io.github.konove.notmytodo.ide
 
-import io.github.konove.notmytodo.TestStore
 import com.intellij.openapi.command.WriteCommandAction
-import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import io.github.konove.notmytodo.settings.TodoProjectSettings
+import io.github.konove.notmytodo.TestStore
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.store.Draft
+import io.github.konove.notmytodo.store.ProjectRecord
+import io.github.konove.notmytodo.store.Store
 import io.github.konove.notmytodo.store.StoreException
+import org.junit.Assert.assertThrows
 import java.nio.file.Files
-import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 
 class TodoServiceTest : BasePlatformTestCase() {
@@ -17,78 +17,62 @@ class TodoServiceTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        service = TodoService.getInstance(project)
         TestStore.reset(project)
+        service = TodoService.getInstance(project)
     }
 
-    override fun tearDown() {
-        try {
-            service.useItemsFile(TodoProjectSettings.DEFAULT_ITEMS_FILE, move = false)
-        } finally {
-            super.tearDown()
-        }
+    fun `test the project is made in the store for the project's folder`() {
+        assertTrue(service.available)
+        val record = service.store.project!!
+        assertEquals(Store.keyFor(service.root, emptySet()), record.key)
+        assertEquals(listOf(service.root.toString()), record.checkouts)
     }
 
-    fun `test accepting a fix is kept out of the items file until it is next written`() {
-        val store = service.store
-        store.create(Draft("fixed by an agent"))
-        store.create(Draft("my own"))
-        store.update("T-1") { it.copy(status = Status.FIXED) }
-        val committed = Files.readString(store.file)
-
+    fun `test accepting a fix is written at once`() {
+        service.store.create(Draft("fixed by an agent"))
+        service.store.update("T-1") { it.copy(status = Status.FIXED) }
         ItemActions.setStatus(project, "T-1", Status.DONE)
-        assertEquals(Status.DONE, store.find("T-1")!!.status)
-        assertEquals(committed, Files.readString(store.file))
-        assertEquals(setOf("T-1"), project.service<HeldStatuses>().load().keys)
-
-        // What I close myself goes into the file, to be committed with my work, and takes the other along.
-        ItemActions.setStatus(project, "T-2", Status.DONE)
-        val text = Files.readString(store.file)
-        assertEquals(2, Regex("\"status\": \"done\"").findAll(text).count())
-        assertTrue(project.service<HeldStatuses>().load().isEmpty())
+        assertEquals(Status.DONE, service.store.dir.read().items.single().status)
     }
 
-    fun `test the items file can be moved and the setting follows`() {
-        service.store.create(Draft("travels"))
-        service.useItemsFile("notes/todo.json", move = true)
+    fun `test a broken project file of the key the project would get leaves it unopened, and Reload opens it once fixed`() {
+        val stores = StoreService.getInstance().store
+        val key = service.store.key
+        val record = stores.dir(key).path.resolve("project.json")
+        Files.writeString(record, "{ broken")
+        service.reopen()
+        assertFalse(service.available)
+        assertTrue(service.store.error!!, service.store.error!!.contains("cannot be read"))
+        assertThrows(StoreException::class.java) { service.store.create(Draft("lost")) }
+        // No second project was made beside the broken one.
+        assertEquals(listOf(key), Files.list(stores.root.resolve("projects")).use { s -> s.map { it.fileName.toString() }.toList() })
+
+        stores.dir(key).writeRecord(ProjectRecord(key, checkouts = listOf(service.root.toString())))
+        assertTrue(service.reload())
+        assertTrue(service.available)
+        assertEquals("T-1", service.store.create(Draft("kept")).id)
+    }
+
+    fun `test listeners stay when the project is opened again`() {
+        val told = AtomicInteger()
+        val listener: () -> Unit = { told.incrementAndGet() }
+        service.addListener(listener)
         try {
-            assertTrue(service.store.file.endsWith("notes/todo.json"))
-            assertEquals(listOf("travels"), service.store.items.map { it.title })
-            assertEquals("notes/todo.json", TodoProjectSettings.getInstance(project).itemsFile)
+            service.reopen()
+            val before = told.get()
+            service.store.create(Draft("after"))
+            assertTrue(told.get() > before)
         } finally {
-            Files.deleteIfExists(service.store.file)
+            service.removeListener(listener)
         }
     }
 
-    fun `test a path outside the project is refused and the old file stays in use`() {
-        val before = service.store.file
-        try {
-            service.useItemsFile("../elsewhere.json", move = false)
-            fail("expected a StoreException")
-        } catch (e: StoreException) {
-            assertTrue(e.message!!.contains("inside the project"))
-        }
-        assertEquals(before, service.store.file)
-        assertEquals(TodoProjectSettings.DEFAULT_ITEMS_FILE, TodoProjectSettings.getInstance(project).itemsFile)
-    }
-
-    fun `test a path under a regular file is refused and the old file stays in use`() {
-        val before = service.store.file
-        val blocker = Files.writeString(Path.of(project.basePath!!).resolve("nmt-blocker.txt"), "x")
-        try {
-            service.useItemsFile("nmt-blocker.txt/items.json", move = false)
-            fail("expected a StoreException")
-        } catch (e: StoreException) {
-            assertTrue(e.message!!.contains("cannot be written"))
-        } finally {
-            Files.deleteIfExists(blocker)
-        }
-        assertEquals(before, service.store.file)
-        assertEquals(TodoProjectSettings.DEFAULT_ITEMS_FILE, TodoProjectSettings.getInstance(project).itemsFile)
-    }
-
-    fun `test store file lives under dot todos`() {
-        assertTrue(service.store.file.endsWith(".todos/items.json"))
+    fun `test an open item of another project blocks`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("elsewhere").writeRecord(ProjectRecord("elsewhere"))
+        stores.items("elsewhere").create(Draft("there first"))
+        val item = service.store.create(Draft("here", blockedBy = listOf("elsewhere/T-1")))
+        assertEquals(listOf("there first"), service.links().openBlockers(item).map { it.title })
     }
 
     fun `test paths map both ways`() {

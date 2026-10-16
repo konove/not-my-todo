@@ -8,7 +8,6 @@ import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.components.JBLabel
@@ -27,13 +26,9 @@ import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.channel.ChannelRegistration
 import io.github.konove.notmytodo.channel.ChannelServer
 import io.github.konove.notmytodo.handoff.ClaudeLauncher
-import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
-import io.github.konove.notmytodo.store.ItemsFilePath
-import io.github.konove.notmytodo.store.StoreException
 import java.awt.datatransfer.StringSelection
 import java.io.IOException
-import java.nio.file.Files
 import javax.swing.JButton
 
 /** Settings, Tools, Not My TODO. Edits a copy of the values and stores it on Apply. */
@@ -44,7 +39,6 @@ class TodoConfigurable(
     constructor(project: Project) : this(project, ChannelRegistration())
 
     internal var draft = TodoSettings.getInstance().values
-    internal var itemsFile = TodoProjectSettings.getInstance(project).itemsFile
 
     private val bridgeStatus = JBLabel("Checking...")
     private val bridgeProblem = JBLabel().apply {
@@ -145,54 +139,31 @@ class TodoConfigurable(
                 checkBox("Show the Code comments entry").bindSelected({ draft.codeComments }, { draft.codeComments = it })
             }
         }
-        group("This Project") {
-            row("Items file:") {
-                textField().columns(COLUMNS_LARGE)
-                    .bindText({ itemsFile }, { itemsFile = it })
-                    .comment("Relative to the project root.")
-            }
-        }
     }
 
     override fun reset() {
         draft = TodoSettings.getInstance().values
-        itemsFile = TodoProjectSettings.getInstance(project).itemsFile
         super.reset()
         refreshChannel()
     }
 
     override fun apply() {
         super.apply()
-        store(draft, itemsFile)
+        store(draft)
         refreshChannel()
     }
 
     /** True also after a refused Apply, which has copied the controls into [draft] without saving them. */
-    override fun isModified(): Boolean =
-        super.isModified() || draft != TodoSettings.getInstance().values ||
-            itemsFile.trim() != TodoProjectSettings.getInstance(project).itemsFile
+    override fun isModified(): Boolean = super.isModified() || draft != TodoSettings.getInstance().values
 
     /**
      * Checks and saves what the page holds. Everything is checked before anything is saved, so a
      * refusal leaves all settings as they were.
      */
-    internal fun store(values: TodoSettings.Values, itemsFile: String) {
+    internal fun store(values: TodoSettings.Values) {
         if (values.claudeCommand.isBlank()) throw ConfigurationException("Type the command that starts Claude Code.")
         if (values.defaultTarget == FixTarget.SESSION && !values.channelEnabled) {
             throw ConfigurationException("Switch on sending to a running session before making it the default target.")
-        }
-        val service = TodoService.getInstance(project)
-        try {
-            if (itemsFile.trim() != TodoProjectSettings.getInstance(project).itemsFile) {
-                val target = ItemsFilePath.resolve(service.base, itemsFile)
-                val old = service.store.file
-                val move = Files.exists(old) && !Files.exists(target) && Messages.showYesNoDialog(
-                    project, "Move ${old.fileName} to ${itemsFile.trim()}?", "Not My TODO", null,
-                ) == Messages.YES
-                service.useItemsFile(itemsFile, move)
-            }
-        } catch (e: StoreException) {
-            throw ConfigurationException(e.message)
         }
         TodoSettings.getInstance().update(values)
     }
