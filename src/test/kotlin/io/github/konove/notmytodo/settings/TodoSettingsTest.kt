@@ -73,10 +73,10 @@ class TodoSettingsTest : BasePlatformTestCase() {
         assertEquals("other.json", project.itemsFile)
     }
 
-    fun `test prompt options come from the values and short needs the MCP tools`() {
+    fun `test prompt options come from the values and short needs the todo tools`() {
         val v = TodoSettings.Values(contextLines = 5, shortPrompt = true, extraInstructions = "Be brief.")
-        val with = v.promptOptions("notes/todo.json", toolsAvailable = true)
-        assertEquals(io.github.konove.notmytodo.handoff.PromptOptions(5, true, "Be brief.", "notes/todo.json"), with)
-        assertFalse(v.promptOptions("notes/todo.json", toolsAvailable = false).short)
+        val with = v.promptOptions("/store/projects/demo/items", toolsAvailable = true)
+        assertEquals(io.github.konove.notmytodo.handoff.PromptOptions(5, true, "Be brief.", "/store/projects/demo/items"), with)
+        assertFalse(v.promptOptions("/store/projects/demo/items", toolsAvailable = false).short)
     }
 }

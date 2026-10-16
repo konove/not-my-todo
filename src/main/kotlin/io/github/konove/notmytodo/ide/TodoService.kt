@@ -148,6 +148,9 @@ class TodoService(private val project: Project) : Disposable {
         relay()
     }
 
+    /** The folder of the store project's item files, which an agent without the tools can edit. */
+    val itemsDir: Path get() = store.dir.path.resolve("items")
+
     /** How the project's items refer to each other and to the items of other projects. */
     fun links(): Links = Links(store.items, StoreService.getInstance().store::find)
 

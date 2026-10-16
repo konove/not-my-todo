@@ -5,6 +5,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
@@ -20,7 +21,6 @@ import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.settings.FixTarget
-import io.github.konove.notmytodo.settings.TodoProjectSettings
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.store.StoreException
 import io.github.konove.notmytodo.ui.TodoPanel
@@ -90,11 +90,13 @@ object ItemActions {
         project.service<AnchorTracker>().flushAll()
         val store = TodoService.getInstance(project).store
         val item = if (CodeTodos.isCode(row)) row else TodoService.getInstance(project).links().shown(store.find(row.id) ?: row)
+        saveAnchored(project, listOf(item))
         return PromptBuilder.build(item, fileTexts(project, listOf(item)), "", promptOptions(project).copy(claim = true))
     }
 
     /** Where the prompt went, or null when the dialog was cancelled. */
     private fun handOff(project: Project, item: TodoItem): FixTarget? {
+        saveAnchored(project, listOf(item))
         val values = TodoSettings.getInstance().values
         val files = fileTexts(project, listOf(item))
         val options = promptOptions(project)
@@ -122,7 +124,15 @@ object ItemActions {
     }
 
     private fun promptOptions(project: Project): PromptOptions = TodoSettings.getInstance().values
-        .promptOptions(TodoProjectSettings.getInstance(project).itemsFile, ClaudeLauncher.areToolsAvailable())
+        .promptOptions(TodoService.getInstance(project).itemsDir.toString(), ClaudeLauncher.areToolsAvailable())
+
+    /** The agent reads the files from disk, so what the editor shows of [items]' files is saved first. */
+    private fun saveAnchored(project: Project, items: List<TodoItem>) {
+        val service = TodoService.getInstance(project)
+        val documents = FileDocumentManager.getInstance()
+        items.flatMap { it.anchors }.map { it.path }.distinct().mapNotNull(service::findFile)
+            .mapNotNull(documents::getCachedDocument).filter(documents::isDocumentUnsaved).forEach(documents::saveDocument)
+    }
 
     /** What can take a prompt now. */
     private fun availability(project: Project): TargetChoice.Availability {
@@ -210,6 +220,7 @@ object ItemActions {
             project, "Send ${items.size} items ($names) to $where$after${if (held > 0) "." else "?"}", "Fix with Claude", null,
         )
         if (answer != Messages.YES) return
+        saveAnchored(project, items)
         val links = TodoService.getInstance(project).links()
         val prompt = PromptBuilder.buildAll(items.map(links::shown), fileTexts(project, items), promptOptions(project).copy(claim = copied))
         deliver(project, target, prompt, items.map { it.id })

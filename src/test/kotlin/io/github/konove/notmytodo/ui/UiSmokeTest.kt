@@ -4,14 +4,18 @@ import io.github.konove.notmytodo.TestStore
 import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Author
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.ide.CodeTodos
+import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Status
+import io.github.konove.notmytodo.settings.FixTarget
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.store.Draft
 import java.nio.file.Files
@@ -446,5 +450,25 @@ class UiSmokeTest : BasePlatformTestCase() {
         pane.effortBox.selectedIndex = 0
         pane.save()
         assertNull(store.find(item.id)!!.effort)
+    }
+
+    fun `test Fix saves the anchored file first, so that the agent reads what the editor shows`() {
+        val service = TodoService.getInstance(project)
+        val psi = myFixture.configureByText("s.txt", text)
+        val path = service.relativePath(psi.virtualFile)!!
+        val item = service.store.create(Draft("tidy", anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
+        WriteCommandAction.runWriteCommandAction(project) { myFixture.editor.document.insertString(0, "typed\n") }
+        val documents = FileDocumentManager.getInstance()
+        assertTrue(documents.isDocumentUnsaved(myFixture.editor.document))
+        TodoSettings.getInstance().update(TodoSettings.getInstance().values.apply {
+            skipFixDialog = true
+            defaultTarget = FixTarget.CLIPBOARD
+        })
+        try {
+            ItemActions.fix(project, item.id)
+            assertFalse(documents.isDocumentUnsaved(myFixture.editor.document))
+        } finally {
+            TodoSettings.getInstance().update(TodoSettings.Values())
+        }
     }
 }

@@ -10,7 +10,8 @@ import io.github.konove.notmytodo.model.TodoItem
 /**
  * How a prompt is written. [contextLines] is the code shown either side of the item's lines.
  * With [short] the agent is sent to `todo_get` and no code is embedded. [extra] is appended once
- * to every prompt. [itemsFile] is named as the fallback for an agent without the tools.
+ * to every prompt. [itemsDir] is the store's folder of the project's item files, named as the fallback for an agent
+ * without the tools; with none, no fallback is offered.
  * With [claim] the agent is told to mark an open item in progress before it starts: for a prompt
  * that may never reach an agent, where the IDE cannot know that the work has begun.
  */
@@ -18,7 +19,7 @@ data class PromptOptions(
     val contextLines: Int = 20,
     val short: Boolean = false,
     val extra: String = "",
-    val itemsFile: String = ".todos/items.json",
+    val itemsDir: String = "",
     val claim: Boolean = false,
 )
 
@@ -78,18 +79,20 @@ object PromptBuilder {
             return out.toString()
         }
         val claimed = options.claim && item.status == Status.OPEN
+        val file = itemFile(item, options)
         if (claimed) {
             out.append("\nBefore you start, call the todo_update tool with id \"${item.id}\" and status \"in_progress\", ")
-            out.append("which shows the user that the item is being worked on. ")
-            out.append("If that tool is not available, set \"status\": \"in_progress\" for this item in ${options.itemsFile}.\n")
+            out.append("which shows the user that the item is being worked on.")
+            file?.let { out.append(" If that tool is not available, set \"status\": \"in_progress\" in $it.") }
+            out.append("\n")
         }
         if (item.needsDecision) {
-            decision(out, item, options, claimed)
+            decision(out, item, file, claimed)
             return out.toString()
         }
         out.append("\nWhen you have finished, call the todo_update tool with id \"${item.id}\" and status \"fixed\". ")
         out.append(RESOLUTION)
-        out.append("If that tool is not available, set \"status\": \"fixed\" for this item in ${options.itemsFile}. ")
+        file?.let { out.append("If that tool is not available, set \"status\": \"fixed\" in $it. ") }
         out.append("If you could not fix it, leave the status alone and explain why.\n")
         out.append("\nIf fixing this needs a decision that is the user's to make, do not guess and do not change the code. ")
         out.append("Call todo_update with id \"${item.id}\" and toDecide, ")
@@ -98,7 +101,7 @@ object PromptBuilder {
     }
 
     /** An item that waits for me: the agent lays out the options and asks, and only then does the work. */
-    private fun decision(out: StringBuilder, item: TodoItem, options: PromptOptions, claimed: Boolean) {
+    private fun decision(out: StringBuilder, item: TodoItem, file: String?, claimed: Boolean) {
         out.append("\nDo not change anything ${if (claimed) "else " else ""}yet. Work out what has to be decided and give the user the options, ")
         out.append("each with what it means and what it costs, and say which one you recommend. ")
         out.append("Then ask the user to choose and wait for the answer. ")
@@ -111,10 +114,13 @@ object PromptBuilder {
         out.append("\nWhen the user has chosen, carry the choice out. ")
         out.append("When you have finished, call the todo_update tool with id \"${item.id}\" and status \"fixed\". ")
         out.append(RESOLUTION)
-        out.append("If that tool is not available, remove the \"${Tags.NEEDS_DECISION}\" tag and set \"status\": \"fixed\" ")
-        out.append("for this item in ${options.itemsFile}. ")
+        file?.let { out.append("If that tool is not available, remove the \"${Tags.NEEDS_DECISION}\" tag and set \"status\": \"fixed\" in $it. ") }
         out.append("If the user does not choose, leave the item as it is.\n")
     }
+
+    /** The file the store keeps [item] in, for an agent without the tools; null when the prompt does not know the folder. */
+    private fun itemFile(item: TodoItem, options: PromptOptions): String? =
+        options.itemsDir.takeIf { it.isNotBlank() }?.let { "$it/${item.id}.json" }
 
     /** Every anchor of the item, numbered when there is more than one. */
     private fun locations(out: StringBuilder, item: TodoItem, files: Map<String, String>, contextLines: Int) {

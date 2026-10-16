@@ -147,16 +147,22 @@ class PromptBuilderTest {
     }
 
     @Test
-    fun `the fallback names the items file in use`() {
-        val p = PromptBuilder.build(anchored, files, "", PromptOptions(itemsFile = "notes/todo.json"))
-        assertTrue(p.contains("for this item in notes/todo.json."))
-        assertFalse(p.contains(".todos/items.json"))
+    fun `the fallback names the item's file in the store`() {
+        val p = PromptBuilder.build(anchored, files, "", PromptOptions(itemsDir = "/store/projects/demo/items"))
+        assertTrue(p, p.contains("If that tool is not available, set \"status\": \"fixed\" in /store/projects/demo/items/T-14.json. "))
+    }
+
+    @Test
+    fun `with no folder of item files there is no fallback`() {
+        val p = PromptBuilder.build(anchored, files, "", PromptOptions(claim = true))
+        assertFalse(p, p.contains("If that tool is not available, set"))
+        assertTrue(p, p.contains("which shows the user that the item is being worked on.\n"))
     }
 
     @Test
     fun `an item that needs my decision asks for options and a choice before any work`() {
         val waiting = anchored.copy(tags = listOf("perf", "needs-decision"))
-        val p = PromptBuilder.build(waiting, files, "tests pass", PromptOptions(itemsFile = "notes/todo.json"))
+        val p = PromptBuilder.build(waiting, files, "tests pass", PromptOptions(itemsDir = "/store/projects/demo/items"))
         assertTrue(p.startsWith("TODO item T-14 waits for a decision that is the user's to make (priority p1, tags: perf, needs-decision)."))
         assertTrue(p.contains("Details:\nShare one path per cell."))
         assertTrue(p.contains(">   30  line 30"))
@@ -167,7 +173,7 @@ class PromptBuilderTest {
         assertTrue(p.indexOf("Do not change anything yet.") < p.indexOf("When the user has chosen"))
         assertTrue(p.contains("todo_update tool with id \"T-14\" and status \"fixed\""))
         assertFalse(p.contains("tags \""))
-        assertTrue(p.contains("remove the \"needs-decision\" tag and set \"status\": \"fixed\" for this item in notes/todo.json."))
+        assertTrue(p.contains("remove the \"needs-decision\" tag and set \"status\": \"fixed\" in /store/projects/demo/items/T-14.json."))
         assertFalse(p.contains("do not guess"))
         val only = PromptBuilder.build(TodoItem("T-3", "pick a license", tags = listOf("needs-decision")), emptyMap(), "")
         assertTrue(only.contains("id \"T-3\" and status \"fixed\""))
@@ -256,10 +262,10 @@ class PromptBuilderTest {
 
     @Test
     fun `a prompt that may reach no agent has the agent mark the item in progress itself`() {
-        val claim = PromptOptions(claim = true)
+        val claim = PromptOptions(claim = true, itemsDir = "/store/projects/demo/items")
         val p = PromptBuilder.build(anchored, files, "", claim)
         assertTrue(p, p.contains("Before you start, call the todo_update tool with id \"T-14\" and status \"in_progress\""))
-        assertTrue(p, p.contains("set \"status\": \"in_progress\" for this item in .todos/items.json"))
+        assertTrue(p, p.contains("If that tool is not available, set \"status\": \"in_progress\" in /store/projects/demo/items/T-14.json.\n"))
         assertTrue(p.indexOf("\"in_progress\"") < p.indexOf("status \"fixed\""))
         assertFalse(PromptBuilder.build(anchored, files, "").contains("in_progress"))
         // Only an open item is taken up: one in progress is there already, and a closed one is not reopened.
