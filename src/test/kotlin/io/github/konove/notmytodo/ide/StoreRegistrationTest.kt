@@ -24,4 +24,12 @@ class StoreRegistrationTest {
         )
         assertEquals(ChannelRegistration.Status.NO_CLAUDE, StoreRegistration { null }.status())
     }
+
+    @Test
+    fun `a claude that hangs or cannot be started is not taken to lack the server`() {
+        assertEquals(
+            ChannelRegistration.Status.NO_CLAUDE,
+            StoreRegistration { ChannelRegistration.Outcome(-1, "claude did not answer in 10 seconds.") }.status(),
+        )
+    }
 }

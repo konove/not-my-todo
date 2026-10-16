@@ -18,7 +18,19 @@ import java.nio.file.Path
 /** The store of this machine, one for the whole IDE: every open project shares its lock and its items. */
 @Service(Service.Level.APP)
 class StoreService : Disposable {
-    val store: Store = Store(System.getProperty(ROOT_PROPERTY)?.takeIf { it.isNotBlank() }?.let(Path::of) ?: StoreRoot.default())
+    val store: Store = Store(root())
+
+    /**
+     * The folder [ROOT_PROPERTY] names, else the user's store. Tests started without the property, as
+     * from outside Gradle, stop here: the default would be the user's own store.
+     */
+    private fun root(): Path {
+        System.getProperty(ROOT_PROPERTY)?.takeIf { it.isNotBlank() }?.let { return Path.of(it) }
+        check(!ApplicationManager.getApplication().isUnitTestMode) {
+            "The tests must name a store of their own with the system property $ROOT_PROPERTY; the build sets it to build/test-store."
+        }
+        return StoreRoot.default()
+    }
 
     private var watch: LocalFileSystem.WatchRequest? = null
 

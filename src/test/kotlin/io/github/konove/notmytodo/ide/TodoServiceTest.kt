@@ -34,6 +34,19 @@ class TodoServiceTest : BasePlatformTestCase() {
         assertEquals(listOf(service.root.toString()), record.checkouts)
     }
 
+    fun `test tests that name no store of their own stop before they reach the user's`() {
+        val own = System.getProperty(StoreService.ROOT_PROPERTY)
+        System.clearProperty(StoreService.ROOT_PROPERTY)
+        try {
+            StoreService()
+            fail("expected an IllegalStateException")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message!!, e.message!!.contains(StoreService.ROOT_PROPERTY))
+        } finally {
+            System.setProperty(StoreService.ROOT_PROPERTY, own)
+        }
+    }
+
     fun `test after a rename the listeners still hear changes, and the items are written in the renamed folder`() {
         val told = AtomicInteger()
         val listener: () -> Unit = { told.incrementAndGet() }

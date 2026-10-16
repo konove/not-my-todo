@@ -43,13 +43,30 @@ class ProjectOpener(private val store: Store) {
      * [StoreException] when the project cannot be opened.
      */
     fun open(base: Path, legacy: Path, held: Map<String, Pair<Status, Status>> = emptyMap()): Opened {
-        val resolution = store.resolve(base)
-        val root = resolution.root ?: base.toAbsolutePath().normalize()
-        if (!Files.isRegularFile(legacy)) return Opened(store.items(store.ensure(resolution).record.key), root, null)
-        return store.lock.withLock { importing(resolution, base, root, legacy, held) }
+        if (!Files.isRegularFile(legacy)) {
+            val resolution = store.resolve(base)
+            return Opened(store.items(store.ensure(resolution).record.key), rootOf(resolution, base), null)
+        }
+        // Resolved under the lock, so that a project another process made for the folder in between is seen with its import.
+        return store.lock.withLock {
+            val resolution = store.resolve(base)
+            importing(resolution, base, rootOf(resolution, base), legacy, held)
+        }
     }
 
+    private fun rootOf(resolution: Resolution, base: Path): Path = resolution.root ?: base.toAbsolutePath().normalize()
+
+    /**
+     * The file is decoded only when it is going to be imported. Once its items are in the store it is
+     * no longer read, as the balloon said, so a kept file that broke since does not stop the project opening.
+     */
     private fun importing(resolution: Resolution, base: Path, root: Path, file: Path, held: Map<String, Pair<Status, Status>>): Opened {
+        val path = file.toAbsolutePath().normalize().toString()
+        val before = resolution.record?.importedFrom
+        if (before != null || store.projects().any { it.importedFrom?.path == path }) {
+            val key = store.ensure(resolution).record.key
+            return Opened(store.items(key), root, before?.let { elsewhere(file, path, it.path, it.sha256) })
+        }
         val bytes = try {
             Files.readAllBytes(file)
         } catch (e: IOException) {
@@ -61,23 +78,29 @@ class ProjectOpener(private val store: Store) {
             throw StoreException("$file cannot be imported into the store: ${e.message}. Fix it, then press Reload in the Not My TODO window.")
         }
         val record = store.ensure(resolution).record
-        val path = file.toAbsolutePath().normalize().toString()
-        val before = record.importedFrom
-        val legacy = when {
-            before == null -> {
-                val statuses = read.items.mapNotNull { item ->
-                    held[item.id]?.takeIf { it.first == item.status }?.let { item.id to it.second }
-                }.toMap()
-                when (val result = Import.run(store, record.key, file, statuses, rebase(base, root))) {
-                    is ImportResult.Imported -> Legacy.Imported(file, result.count)
-                    is ImportResult.Clash -> Legacy.Clash(file, result.ids)
-                    ImportResult.AlreadyImported -> null
-                }
-            }
-            before.path == path || before.sha256 == Import.sha256(bytes) -> null
-            else -> Legacy.Elsewhere(file, before.path)
+        val statuses = read.items.mapNotNull { item ->
+            held[item.id]?.takeIf { it.first == item.status }?.let { item.id to it.second }
+        }.toMap()
+        val legacy = when (val result = Import.run(store, record.key, file, statuses, rebase(base, root))) {
+            is ImportResult.Imported -> Legacy.Imported(file, result.count)
+            is ImportResult.Clash -> Legacy.Clash(file, result.ids)
+            ImportResult.AlreadyImported -> null
         }
         return Opened(store.items(record.key), root, legacy)
+    }
+
+    /**
+     * [Legacy.Elsewhere] when the project holds the items of [other] and [file] is not a copy of it.
+     * The file is read for its hash only; one that cannot be read is not worth a word.
+     */
+    private fun elsewhere(file: Path, path: String, other: String, sha256: String): Legacy? {
+        if (other == path) return null
+        val bytes = try {
+            Files.readAllBytes(file)
+        } catch (_: IOException) {
+            return null
+        }
+        return if (Import.sha256(bytes) == sha256) null else Legacy.Elsewhere(file, other)
     }
 
     companion object {

@@ -85,6 +85,17 @@ class ProjectOpenerTest {
     }
 
     @Test
+    fun `a kept items file that broke after the import is not read again`() {
+        val folder = repo("kept")
+        val file = itemsFile(folder)
+        opener.open(folder, file)
+        Files.writeString(file, "{ broken")
+        val again = opener.open(folder, file)
+        assertNull(again.legacy)
+        assertEquals(listOf("T-2", "T-5"), again.items.items.map { it.id })
+    }
+
+    @Test
     fun `anchors are made relative to the git root when the IDE project is a folder inside the repository`() {
         val folder = repo("mono")
         val sub = Files.createDirectories(folder.resolve("apps/web"))

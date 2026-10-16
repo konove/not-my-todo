@@ -8,6 +8,7 @@ import io.github.konove.notmytodo.ide.StoreService
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.store.Draft
+import io.github.konove.notmytodo.store.ProjectRecord
 import com.intellij.testFramework.PlatformTestUtil
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
@@ -133,6 +134,35 @@ class TodoConfigurableTest : BasePlatformTestCase() {
         assertEquals("renamed", service.store.key)
         assertEquals(listOf("travels"), service.store.items.map { it.title })
         assertTrue(Files.isDirectory(StoreService.getInstance().store.dir("renamed").path))
+    }
+
+    fun `test the page is not modified once the new key is applied`() {
+        val field = com.intellij.util.ui.UIUtil.findComponentsOfType(page.createComponent(), javax.swing.JTextField::class.java)
+            .first { it.text == TodoService.getInstance(project).store.key }
+        field.text = "Renamed"
+        assertTrue(page.isModified)
+        page.apply()
+        assertEquals("renamed", TodoService.getInstance(project).store.key)
+        assertEquals("renamed", field.text)
+        assertFalse(page.isModified)
+        page.store(TodoSettings.Values(), "Renamed")
+        assertEquals("renamed", TodoService.getInstance(project).store.key)
+        assertFalse(page.isModified)
+    }
+
+    fun `test a page reset while the project is unavailable never renames it, even once it is available again`() {
+        val service = TodoService.getInstance(project)
+        val stores = StoreService.getInstance().store
+        val key = service.store.key
+        Files.writeString(stores.dir(key).path.resolve("project.json"), "{ broken")
+        service.reopen()
+        assertFalse(service.available)
+        page.reset()
+        stores.dir(key).writeRecord(ProjectRecord(key, checkouts = listOf(service.root.toString())))
+        assertTrue(service.reload())
+        assertFalse(page.isModified)
+        page.store(TodoSettings.Values(), page.key)
+        assertEquals(key, service.store.key)
     }
 
     fun `test a key that cannot be one is refused with the reason and nothing is saved`() {

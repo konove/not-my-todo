@@ -6,10 +6,18 @@ import io.github.konove.notmytodo.channel.ChannelRegistration
 class StoreRegistration(
     private val run: (List<String>) -> ChannelRegistration.Outcome? = { ChannelRegistration.runClaude(it) },
 ) {
-    /** Asks Claude Code. Takes a moment; do not call on the event thread. */
+    /**
+     * Asks Claude Code. Takes a moment; do not call on the event thread. A claude that did not answer
+     * or could not be started (exit -1) has said nothing about the server: that is NO_CLAUDE too, so
+     * that no balloon tells the user to install a server they may have.
+     */
     fun status(): ChannelRegistration.Status {
         val outcome = run(listOf("mcp", "get", NAME)) ?: return ChannelRegistration.Status.NO_CLAUDE
-        return if (outcome.exit == 0) ChannelRegistration.Status.REGISTERED else ChannelRegistration.Status.NOT_REGISTERED
+        return when (outcome.exit) {
+            0 -> ChannelRegistration.Status.REGISTERED
+            -1 -> ChannelRegistration.Status.NO_CLAUDE
+            else -> ChannelRegistration.Status.NOT_REGISTERED
+        }
     }
 
     companion object {

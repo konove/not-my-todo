@@ -47,6 +47,12 @@ class TodoConfigurable(
     internal var draft = TodoSettings.getInstance().values
     internal var key = TodoService.getInstance(project).store.key
 
+    /**
+     * False for a page reset while the project was unavailable: [key] is then the stand-in's, the
+     * name of the store's folder, and must not become the project's should it open while the page is.
+     */
+    private var renames = TodoService.getInstance(project).available
+
     private val bridgeStatus = JBLabel("Checking...")
     private val bridgeProblem = JBLabel().apply {
         foreground = UIUtil.getErrorForeground()
@@ -179,19 +185,23 @@ class TodoConfigurable(
     override fun reset() {
         draft = TodoSettings.getInstance().values
         key = TodoService.getInstance(project).store.key
+        renames = TodoService.getInstance(project).available
         super.reset()
         refreshChannel()
     }
 
     override fun apply() {
         super.apply()
+        val typed = key
         store(draft, key)
+        // A key typed as "Renamed" is stored as "renamed": the field shows what it became.
+        if (key != typed) super.reset()
         refreshChannel()
     }
 
     /** True also after a refused Apply, which has copied the controls into [draft] without saving them. */
     override fun isModified(): Boolean = super.isModified() || draft != TodoSettings.getInstance().values ||
-        key.trim() != TodoService.getInstance(project).store.key
+        renames && key.trim().lowercase() != TodoService.getInstance(project).store.key
 
     /**
      * Checks and saves what the page holds. Everything is checked before anything is saved, so a
@@ -203,12 +213,13 @@ class TodoConfigurable(
             throw ConfigurationException("Switch on sending to a running session before making it the default target.")
         }
         val service = TodoService.getInstance(project)
-        if (service.available && key.trim() != service.store.key) {
+        if (renames && service.available && key.trim().lowercase() != service.store.key) {
             try {
                 service.rename(key)
             } catch (e: StoreException) {
                 throw ConfigurationException(e.message)
             }
+            this.key = service.store.key
         }
         TodoSettings.getInstance().update(values)
     }

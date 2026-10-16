@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import java.io.IOException
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 
@@ -49,18 +50,29 @@ internal class ImportNotices(private val project: Project) {
         fun shown(base: Path, file: Path): String =
             if (file.startsWith(base)) base.relativize(file).joinToString("/") else file.toString()
 
-        /** Deletes the items file, and its .todos folder when nothing else is left in it, through the IDE so that version control sees them go. */
+        /**
+         * Deletes the items file, and its .todos folder when nothing else is left in it, through the IDE so
+         * that version control sees them go. Whether the folder is empty is asked of the disk, not of the
+         * IDE, which may not have seen a file written there since: deleting a folder takes all it holds.
+         */
         fun delete(project: Project, file: Path) {
             val found = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file) ?: return
             try {
                 WriteCommandAction.writeCommandAction(project).withName("Delete the Items File").run<IOException> {
                     val folder = found.parent
                     found.delete(ImportNotices::class.java)
-                    if (folder != null && folder.name == ".todos" && folder.children.isEmpty()) folder.delete(ImportNotices::class.java)
+                    if (folder != null && folder.name == ".todos" && empty(folder.toNioPath())) folder.delete(ImportNotices::class.java)
                 }
             } catch (e: IOException) {
                 Messages.showErrorDialog(project, "${file.fileName} could not be deleted: ${e.message}", "Not My TODO")
             }
+        }
+
+        /** False for a folder that cannot be listed, so that it is left. */
+        private fun empty(folder: Path): Boolean = try {
+            Files.list(folder).use { it.findAny().isEmpty }
+        } catch (_: IOException) {
+            false
         }
     }
 }
