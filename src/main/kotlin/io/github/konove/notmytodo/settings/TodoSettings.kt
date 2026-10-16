@@ -53,10 +53,12 @@ class TodoSettings : PersistentStateComponent<TodoSettings.Values> {
         var defaultPriority: Priority = Priority.P2,
         var editorMarks: Boolean = true,
         var codeComments: Boolean = true,
+        /** The balloon saying that Claude Code lacks the notmytodo-store server is not shown again. */
+        var storeHintDismissed: Boolean = false,
     ) {
-        /** The prompt options for a project whose items are in [itemsFile]. The short form needs the MCP tools. */
-        fun promptOptions(itemsFile: String, mcpAvailable: Boolean): PromptOptions =
-            PromptOptions(contextLines, shortPrompt && mcpAvailable, extraInstructions, itemsFile)
+        /** The prompt options for a project whose items are in [itemsFile]. The short form needs the todo tools. */
+        fun promptOptions(itemsFile: String, toolsAvailable: Boolean): PromptOptions =
+            PromptOptions(contextLines, shortPrompt && toolsAvailable, extraInstructions, itemsFile)
 
         /** The phrases the Fix dialog offers for "Done when", one to a line in [donePhrases]. */
         fun donePhraseList(): List<String> = donePhrases.lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()

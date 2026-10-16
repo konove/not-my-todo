@@ -122,7 +122,7 @@ object ItemActions {
     }
 
     private fun promptOptions(project: Project): PromptOptions = TodoSettings.getInstance().values
-        .promptOptions(TodoProjectSettings.getInstance(project).itemsFile, ClaudeLauncher.isMcpAvailable())
+        .promptOptions(TodoProjectSettings.getInstance(project).itemsFile, ClaudeLauncher.areToolsAvailable())
 
     /** What can take a prompt now. */
     private fun availability(project: Project): TargetChoice.Availability {

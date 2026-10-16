@@ -113,7 +113,7 @@ class TodoConfigurable(
             row {
                 checkBox("Short prompt: the agent reads the item with todo_get, no code is included")
                     .bindSelected({ draft.shortPrompt }, { draft.shortPrompt = it })
-                    .enabled(ClaudeLauncher.isMcpAvailable())
+                    .enabled(ClaudeLauncher.areToolsAvailable())
             }
             row("Extra instructions:") {
                 textArea().rows(3).align(AlignX.FILL)

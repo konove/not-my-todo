@@ -33,6 +33,8 @@ class TodoStartup : ProjectActivity {
             } catch (e: IOException) {
                 thisLogger().warn("The Not My TODO bridge launcher could not be written", e)
             }
+            // The todo tools come from the store's own server, which is installed apart from the plugin.
+            StoreServerHint.getInstance().check(project)
         }
     }
 }

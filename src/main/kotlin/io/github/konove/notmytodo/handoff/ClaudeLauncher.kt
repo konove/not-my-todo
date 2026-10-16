@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.handoff
 
 import com.intellij.openapi.project.Project
 import io.github.konove.notmytodo.ide.Plugins
+import io.github.konove.notmytodo.ide.StoreServerHint
 import io.github.konove.notmytodo.settings.TodoSettings
 import org.jetbrains.plugins.terminal.TerminalToolWindowManager
 import java.nio.file.Files
@@ -10,7 +11,6 @@ import java.nio.file.Path
 /** Starts Claude Code with a prompt. The prompt travels in a file so no shell quoting of its text is needed. */
 object ClaudeLauncher {
     private const val TERMINAL_PLUGIN = "org.jetbrains.plugins.terminal"
-    private const val MCP_PLUGIN = "com.intellij.mcpServer"
 
     /** The name the bridge is registered under with Claude Code. */
     const val CHANNEL_NAME = "notmytodo"
@@ -32,7 +32,8 @@ object ClaudeLauncher {
 
     fun isTerminalAvailable(): Boolean = Plugins.isEnabled(TERMINAL_PLUGIN)
 
-    fun isMcpAvailable(): Boolean = Plugins.isEnabled(MCP_PLUGIN)
+    /** Whether Claude Code has the server with the todo tools, so that a prompt can send the agent to todo_get. */
+    fun areToolsAvailable(): Boolean = StoreServerHint.getInstance().registered
 
     /** Opens a terminal tab in the project directory and runs Claude Code with [prompt]. */
     fun launch(project: Project, prompt: String) {
