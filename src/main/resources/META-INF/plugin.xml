@@ -10,7 +10,7 @@
                 a tag. With nothing selected it saves a plain note.</li>
             <li><b>List:</b> the Not My TODO tool window at the bottom. Search with words, an id like
                 <code>T-12</code>, <code>#tag</code> and <code>!p1</code>. Double-click an item to jump
-                to its code.</li>
+                to its code. Show the items of this project, of Inbox, or of every project.</li>
             <li><b>Anchors:</b> items follow their code as you edit, switch branches, or let an agent
                 change files. If the code can no longer be found the item shows "Anchor lost", and you
                 can re-attach it to a selection. An item can be attached to several places, and to
@@ -38,6 +38,12 @@
             <li>Items are kept in one store per machine, outside the repositories, shared with the
                 not-my-todo-store server. Each repository is a project there, found by its checkout or its
                 remote; items of no repository go into <code>inbox</code>.</li>
+            <li>The list shows this project's items, those of <code>inbox</code>, or those of every
+                project, with the project on each row. Another project's item is named
+                <code>key/T-3</code>; double-click opens its checkout in a window of its own, Fix starts
+                Claude Code there, and drag and Copy name it so that any session finds it.</li>
+            <li>A plain note can be put into this project, <code>inbox</code> or another;
+                <code>@inbox</code> in the text puts it into <code>inbox</code>.</li>
             <li>The first time a project is opened, the items of its <code>.todos/items.json</code> are moved
                 into the store with their ids, and a balloon offers to delete the file. The file is never
                 written again.</li>

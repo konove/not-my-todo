@@ -5,9 +5,9 @@ AI agent take items off your hands.
 
 - **Capture:** select code, press Ctrl+Alt+Shift+Z (or right-click, Add TODO), and
   type. `!p1`..`!p3` sets the priority and `#word` adds a tag. With nothing
-  selected, or after removing the anchor, it saves a plain note.
+  selected, or after removing the anchor, it saves a plain note. A plain note can go into this project, Inbox or another project; `@inbox` in the text puts it into Inbox.
 - **List:** the Not My TODO tool window at the bottom. Search with words, an id like `T-12`, `#tag`
-  and `!p1`. Double-click an item to jump to its code.
+  and `!p1`. Double-click an item to jump to its code. The selector at the left of the filter bar shows the items of this project, of Inbox, or of all projects; in All projects each row names its project, and another project's item is `key/T-3`, double-clicked to open its checkout and fixed with Claude Code started there.
 - **Effort:** an item can say how much work it is: `S`, `M` or `L`, set by the
   agent that files it or by you in the detail pane. Within a priority the
   list puts less effort first and items without one last; search `!s`, `!m`
