@@ -37,9 +37,9 @@ object ItemFilter {
     private val priorityToken = Regex("!p[123]")
     private val effortToken = Regex("![sml]")
 
-    fun apply(items: List<TodoItem>, query: ItemQuery): List<TodoItem> {
+    /** [links] says what blocks an item and what its parts are: the list passes its own, which also follow links to other projects. */
+    fun apply(items: List<TodoItem>, query: ItemQuery, links: Links = Links(items)): List<TodoItem> {
         val words = query.text.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        val links = Links(items)
         return items
             // An item asked for by its id is shown even when closed.
             .filter { query.showClosed || !it.isClosed || it.status in query.statuses || it.id.lowercase() in words }

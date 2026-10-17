@@ -484,15 +484,17 @@ class TodoPanel(
             ?.let { service.relativePath(it) }
         // Asking a scope about a file needs a read action, which the event thread no longer holds by itself.
         val all = runReadActionBlocking { view.items(projectScope).filter(::inFileScope) }
+        // The filters use the links the rows are shown with, so that "Agent can fix" and a Blocked chip agree.
+        val links = if (projectScope == ProjectScope.THIS_PROJECT) service.links() else view.links()
         // Replacing the models clears the selections for a moment; nothing may react to that.
         refreshing = true
         try {
-            val shown = ItemFilter.apply(all, ItemQuery(showClosed = showClosed))
+            val shown = ItemFilter.apply(all, ItemQuery(showClosed = showClosed), links)
             val tags = shown.flatMap { it.tags }.groupingBy { it }.eachCount().toSortedMap()
             if (tag?.let { it in tags } != true) tag = null
             val wanted = navSearch.text.trim().lowercase()
             val scopeRows = Scope.entries.map { s ->
-                Nav(s, null, ItemFilter.apply(all, ItemQuery(scope = s, currentPath = currentPath, showClosed = showClosed)).size)
+                Nav(s, null, ItemFilter.apply(all, ItemQuery(scope = s, currentPath = currentPath, showClosed = showClosed), links).size)
             } + listOfNotNull(Nav(null, null, codeTodos.size).takeIf { codeAvailable })
             val tagRows = tags.map { (name, count) -> Nav(null, name, count) }.filter { wanted in it.label.lowercase() }
             navModel.replaceAll(
@@ -507,9 +509,8 @@ class TodoPanel(
 
             listed = if (codeMode) CodeTodos.filter(codeTodos, search.text)
             else ItemFilter.apply(
-                all, ItemQuery(search.text, scope, currentPath, showClosed, tag, priorities, statuses, authors, sort),
+                all, ItemQuery(search.text, scope, currentPath, showClosed, tag, priorities, statuses, authors, sort), links,
             )
-            val links = if (projectScope == ProjectScope.THIS_PROJECT) service.links() else view.links()
             val rows = ItemGroups.rows(listed, groupBy, collapsed, links)
             model.replaceAll(if (projectScope == ProjectScope.ALL) withProjects(rows, view.home) else rows)
             val index = model.items.indexOfFirst {

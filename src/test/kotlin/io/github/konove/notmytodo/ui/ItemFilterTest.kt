@@ -181,6 +181,14 @@ class ItemFilterTest {
     }
 
     @Test
+    fun `an item blocked by an open item of another project is not one an agent can fix`() {
+        val blocker = TodoItem("infra/T-9", "theirs")
+        val all = listOf(TodoItem("T-1", "waits", blockedBy = listOf("infra/T-9")), TodoItem("T-2", "free"))
+        val links = Links(all) { if (it == blocker.id) blocker else null }
+        assertEquals(listOf("T-2"), ItemFilter.apply(all, ItemQuery(scope = Scope.AGENT_READY), links).map { it.id })
+    }
+
+    @Test
     fun `a part stands under its parent when both are under the same heading`() {
         val whole = TodoItem("T-1", "whole", priority = Priority.P3)
         val first = TodoItem("T-2", "first", priority = Priority.P1, parent = "T-1", blockedBy = listOf("T-3"))
