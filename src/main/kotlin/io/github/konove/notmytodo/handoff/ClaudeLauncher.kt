@@ -1,10 +1,10 @@
 package io.github.konove.notmytodo.handoff
 
 import com.intellij.openapi.project.Project
+import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
 import io.github.konove.notmytodo.ide.Plugins
 import io.github.konove.notmytodo.ide.StoreServerHint
 import io.github.konove.notmytodo.settings.TodoSettings
-import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
 import java.nio.file.Files
 import java.nio.file.Path
 

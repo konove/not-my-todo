@@ -1,6 +1,5 @@
 package io.github.konove.notmytodo.ide
 
-import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoFormatException
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.model.TodoJson

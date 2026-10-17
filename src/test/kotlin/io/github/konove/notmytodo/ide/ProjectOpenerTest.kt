@@ -105,7 +105,7 @@ class ProjectOpenerTest {
     }
 
     @Test
-    fun `a kept items file that broke after the import is not read again`() {
+    fun `a kept items file that broke after the import is said as changed, and not read again`() {
         val folder = repo("kept")
         val file = itemsFile(folder)
         opener.open(folder, file)
@@ -168,6 +168,17 @@ class ProjectOpenerTest {
         val file = itemsFile(folder)
         val opened = opener.open(folder, file, mapOf("T-2" to HeldStatuses.Held(Status.FIXED, Status.DONE, "2026-10-05T10:00:00Z")))
         assertEquals("2026-10-05T10:00:00Z", opened.items.find("T-2")!!.updated)
+    }
+
+    @Test
+    fun `a held value with no readable time keeps the file's updated`() {
+        val held = HeldStatuses().apply { loadState(HeldStatuses.Values(mutableMapOf("T-2" to "fixed done garbage"))) }.held()
+        assertNull(held.getValue("T-2").time)
+        val folder = repo("untimed")
+        val file = itemsFile(folder, json.replace("\"status\":\"fixed\"", "\"status\":\"fixed\",\"updated\":\"2026-01-02T03:04:05Z\""))
+        val opened = opener.open(folder, file, held)
+        assertEquals(Status.DONE, opened.items.find("T-2")!!.status)
+        assertEquals("2026-01-02T03:04:05Z", opened.items.find("T-2")!!.updated)
     }
 
     @Test
