@@ -341,14 +341,17 @@ class TodoPanel(
         IconAction("Add TODO for the Selection", AllIcons.General.Locate) { addItem() },
         Separator.getInstance(),
         ShowClosedAction(),
-        IconAction("Reload", AllIcons.Actions.Refresh) {
-            service.reload()
-            view.loadLater()
-            refresh()
-            rescan()
-        },
+        IconAction("Reload", AllIcons.Actions.Refresh) { reload() },
         ItemsFolderAction(),
     )
+
+    /** What Reload does. The items are read again on a pooled thread: while the folder has no project, that reads every project. */
+    internal fun reload() {
+        service.reloadLater()
+        view.loadLater()
+        refresh()
+        rescan()
+    }
 
     /** Shows the store project's item files; there are none to show while the folder has no project. */
     private inner class ItemsFolderAction : DumbAwareAction("Show the Items Folder", null, AllIcons.Actions.MenuOpen) {

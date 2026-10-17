@@ -42,12 +42,18 @@ class CaptureDialog(
     private val view = StoreView.getInstance(project)
 
     /**
+     * The entry of [projectBox] for this project, told apart from the others by identity and not by its key: a pending
+     * folder may be keyed again while the dialog is open, and the note then goes to the key it has when it is saved.
+     */
+    private val here = view.home
+
+    /**
      * Where a plain note goes: this project, Inbox (offered before it is made) or another. An anchored
      * item stays in this project, whose code it is on.
      */
-    internal val projectBox = ComboBox((listOf(view.home, Store.INBOX) + view.keys()).distinct().toTypedArray()).apply {
-        selectedItem = view.home
-        renderer = textListCellRenderer<String?> { key -> if (key == view.home) "$key (this project)" else key }
+    internal val projectBox = ComboBox((listOf(here, Store.INBOX) + view.keys()).distinct().toTypedArray()).apply {
+        selectedItem = here
+        renderer = textListCellRenderer<String?> { key -> if (key == here) "$key (this project)" else key }
     }
 
     /** The row of [projectBox], hidden with it while there is an anchor. */
@@ -77,7 +83,7 @@ class CaptureDialog(
         anchorLabel.text = if (current == null) "Plain note, not attached to code" else anchorText(current)
         removeAnchor.isVisible = current != null
         projectRow.visible(current == null)
-        projectBox.selectedItem = if (current != null) view.home else if (inboxAsked) Store.INBOX else projectBox.selectedItem
+        projectBox.selectedItem = if (current != null) here else if (inboxAsked) Store.INBOX else projectBox.selectedItem
     }
 
     /** What Remove anchor does: the note becomes plain, and goes to Inbox if its text asked for it. */
@@ -126,7 +132,9 @@ class CaptureDialog(
     internal fun save(): Boolean {
         val captured = CaptureParser.parse(titleField.text) ?: return false
         if (refusal() != null) return false
-        val key = if (anchor != null) view.home else projectBox.selectedItem as String
+        // A non-editable box selects its own entry for an equal one, so this project's is still [here] when picked.
+        val chosen = projectBox.selectedItem
+        val key = if (anchor != null || chosen === here) view.home else chosen as String
         try {
             view.create(
                 key,

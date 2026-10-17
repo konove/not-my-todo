@@ -78,6 +78,8 @@ import java.awt.Shape
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
+import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.file.Path
 import java.util.concurrent.Future
 import javax.swing.Icon
@@ -376,7 +378,8 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         /** Sets [p] to how the action stands for the item shown. */
         fun present(p: Presentation) {
             val part = current?.parent != null
-            p.isVisible = tracked
+            // Shown for a code comment too, so the toolbar keeps its place; there is nothing in the store to move.
+            p.isVisible = current != null
             p.isEnabled = tracked && !part
             p.text = if (part) "Move the item it is a part of" else "Move to Project…"
         }
@@ -385,14 +388,18 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private val moveAction = MoveAction()
+    /** How Move to Project stands for the item shown: shown, enabled, and its text; for the tests. */
+    internal val moveVisible: Boolean get() = Presentation().also(moveAction::present).isVisible
     internal val moveEnabled: Boolean get() = Presentation().also(moveAction::present).isEnabled
     internal val moveText: String get() = Presentation().also(moveAction::present).text
 
     private fun move() {
         val item = current ?: return
         val from = key
+        // This project's entry is told apart by identity, not by its key: a pending folder may be keyed again while the popup is open.
+        val here = view.home
         // Inbox is offered before it has a record: moving there makes it.
-        val keys = (listOf(view.home, Store.INBOX) + view.keys()).distinct().filter { it != from }
+        val keys = (listOf(here, Store.INBOX) + view.keys()).distinct().filter { it != from }
         if (keys.isEmpty()) {
             Messages.showInfoMessage(project, "There is no other project to move ${item.id} to.", "Not My TODO")
             return
@@ -400,13 +407,17 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         // The chooser dialog of Messages is deprecated; a popup answers through a callback.
         JBPopupFactory.getInstance().createPopupChooserBuilder(keys)
             .setTitle("Move ${item.id} to")
-            .setItemChosenCallback { to -> moveTo(item, to) }
+            .setItemChosenCallback { to -> moveTo(item, if (to === here) null else to) }
             .createPopup()
             .showInFocusCenter()
     }
 
-    /** Asks to confirm, then moves [item] to project [to] under a modal progress and says its new id in a balloon. */
-    private fun moveTo(item: TodoItem, to: String) {
+    /**
+     * Asks to confirm, then moves [item] to project [chosen] under a modal progress and says its new id in a balloon. Null
+     * is this project, whose key is read when the move is written: a pending folder's may have changed since the popup opened.
+     */
+    internal fun moveTo(item: TodoItem, chosen: String?) {
+        val to = chosen ?: view.home
         val links = if (!ViewIds.isElsewhere(item.id)) TodoService.getInstance(project).links() else view.links()
         val parts = links.children(item.id)
         val text = buildString {
@@ -418,15 +429,23 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (Messages.showOkCancelDialog(project, text, "Move to Project", ok, "Cancel", null) != Messages.OK) return
         val moved = try {
             ProgressManager.getInstance().runProcessWithProgressSynchronously(
-                ThrowableComputable<String, StoreException> { view.move(item.id, to, parts.isNotEmpty()) },
+                ThrowableComputable<String, StoreException> { view.move(item.id, chosen ?: view.home, parts.isNotEmpty()) },
                 "Moving ${item.id} to $to", false, project,
             )
         } catch (e: StoreException) {
             Messages.showErrorDialog(project, e.message, "Not My TODO")
             return
+        } catch (e: IOException) {
+            Messages.showErrorDialog(project, e.message, "Not My TODO")
+            return
+        } catch (e: UncheckedIOException) {
+            Messages.showErrorDialog(project, e.message, "Not My TODO")
+            return
         }
+        // The key the item went to: making this project may have given it another than the one asked for.
+        val into = ViewIds.split(moved, view.home)?.project ?: to
         NotificationGroupManager.getInstance().getNotificationGroup("Not My TODO")
-            .createNotification("Moved ${item.id} to $to as $moved.", NotificationType.INFORMATION).notify(project)
+            .createNotification("Moved ${item.id} to $into as $moved.", NotificationType.INFORMATION).notify(project)
     }
 
     private val toolbar = ActionManager.getInstance().createActionToolbar(
@@ -666,10 +685,11 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         awayTask = ApplicationManager.getApplication().executeOnPooledThread {
             val got = runCatching { awayRead(key, path) }.getOrElse { Away(null, null) }
             ApplicationManager.getApplication().invokeLater({
-                // The user may have chosen another item in the meantime.
-                if (awayFor === asked && current == item) {
+                // The user may have chosen another item in the meantime. The read is kept for the item it was asked for even so:
+                // coming back to it asks for no other read, and would otherwise wait for this one for ever.
+                if (awayFor === asked) {
                     away = got
-                    show(item)
+                    if (current == item) show(item)
                 }
             }, project.disposed)
         }

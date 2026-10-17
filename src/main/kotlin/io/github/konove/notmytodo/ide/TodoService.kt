@@ -126,7 +126,8 @@ class TodoService(private val project: Project) : Disposable {
 
     /**
      * Reads the items again. A project that could not be opened, one still pending (another writer may have made it), or whose folder is gone (renamed in
-     * another window), is opened again instead. Returns true when the items may have changed.
+     * another window), is opened again instead. Returns true when the items may have changed. Opening it again reads
+     * every project, so the event thread asks with [reloadLater].
      */
     fun reload(): Boolean {
         if (!available || pending || !Files.isDirectory(store.dir.path)) {
@@ -152,8 +153,11 @@ class TodoService(private val project: Project) : Disposable {
         return true
     }
 
-    /** Reads the items again away from the event thread: it reads files, and opening the project again may wait for the lock. */
-    private fun reloadLater() {
+    /**
+     * [reload] away from the event thread: it reads files, opening the project again may wait for the lock, and while
+     * [pending] it reads every project. The listeners are told when it is done.
+     */
+    internal fun reloadLater() {
         if (!reloading.compareAndSet(false, true)) return
         ApplicationManager.getApplication().executeOnPooledThread {
             reloading.set(false)
@@ -175,17 +179,31 @@ class TodoService(private val project: Project) : Disposable {
         notices.tell(store.key, base, legacy) {}
     }
 
-    /** [importWithNewIds] on a pooled thread, its failure said in a balloon. */
+    /** [importOrSay] on a pooled thread. */
     private fun importLater(file: Path) {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                importWithNewIds(file)
-            } catch (e: StoreException) {
-                NotificationGroupManager.getInstance().getNotificationGroup("Not My TODO")
-                    .createNotification("The items were not moved into the store", e.message ?: "", NotificationType.WARNING)
-                    .notify(project)
-            }
+        ApplicationManager.getApplication().executeOnPooledThread { importOrSay(file) }
+    }
+
+    /**
+     * [importWithNewIds], its failure said in a balloon that offers to try again: the balloon of the clash has gone, and is
+     * not said again this session. Waits for the store's lock: not for the event thread.
+     */
+    internal fun importOrSay(file: Path) {
+        if (project.isDisposed) return
+        val why = try {
+            importWithNewIds(file)
+            return
+        } catch (e: StoreException) {
+            e.message
+        } catch (e: IOException) {
+            e.message
+        } catch (e: UncheckedIOException) {
+            e.message
         }
+        NotificationGroupManager.getInstance().getNotificationGroup("Not My TODO")
+            .createNotification("The items were not moved into the store", why ?: "", NotificationType.WARNING)
+            .addAction(NotificationAction.createSimpleExpiring("Import with New Ids") { importLater(file) })
+            .notify(project)
     }
 
     /** Finds the store project again: after it was renamed, or when it could not be opened before. */

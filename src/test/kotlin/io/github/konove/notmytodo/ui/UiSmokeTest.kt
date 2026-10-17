@@ -60,6 +60,27 @@ class UiSmokeTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test Reload while the folder has no project opens it again off the event thread`() {
+        TestStore.reset(project, made = false)
+        val service = TodoService.getInstance(project)
+        val stores = StoreService.getInstance().store
+        // Another writer makes the project of this folder: Reload is what finds it.
+        stores.items(stores.ensure(stores.resolve(service.base)).record.key).create(Draft("from the server"))
+        val panel = TodoPanel(project)
+        try {
+            // Opening it again reads every project, which the event thread must not wait for. The service is opened again
+            // under its own monitor: held here, a reopen on a pooled thread waits, and one on this thread would go through.
+            synchronized(service) {
+                panel.reload()
+                assertTrue(service.pending)
+            }
+            PlatformTestUtil.waitWhileBusy { service.pending }
+            assertEquals(listOf("from the server"), service.store.items.map { it.title })
+        } finally {
+            Disposer.dispose(panel)
+        }
+    }
+
     fun `test a dragged row carries its prompt, and neither the drag nor a copy changes the status`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("cache findPath"))
@@ -661,9 +682,33 @@ class UiSmokeTest : BasePlatformTestCase() {
         pane.show(view.find("infra/T-1"))
         pane.show(mine)
         gate.countDown()
-        pane.awayTask!!.get()
+        pane.awayTask!!.get(10, java.util.concurrent.TimeUnit.SECONDS)
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertFalse(pane.codeText, pane.codeText.contains("stale"))
+    }
+
+    fun `test coming back to an item whose read ended while another was shown uses that read`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs", anchors = listOf(AnchorResolver.capture("src/a.kt", text, 2, 2))))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val mine = TodoService.getInstance(project).store.create(Draft("mine"))
+        val gate = java.util.concurrent.CountDownLatch(1)
+        var reads = 0
+        val pane = DetailPane(project)
+        pane.awayRead = { _, _ -> reads++; gate.await(); DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n") }
+        val item = view.find("infra/T-1")!!
+        pane.show(item)
+        pane.show(mine)
+        gate.countDown()
+        pane.awayTask!!.get(10, java.util.concurrent.TimeUnit.SECONDS)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        pane.show(item.copy())
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertTrue(pane.fixEnabled)
+        assertTrue(pane.codeText, pane.codeText.contains("line one"))
+        assertEquals(1, reads)
     }
 
     fun `test an equal copy of the item shown does not read again nor blank the pane`() {
@@ -865,5 +910,64 @@ class UiSmokeTest : BasePlatformTestCase() {
         pane.show(store.find(part.id))
         assertFalse(pane.moveEnabled)
         assertEquals("Move the item it is a part of", pane.moveText)
+    }
+
+    fun `test Move to Project is shown but disabled for a code comment`() {
+        val anchor = io.github.konove.notmytodo.model.Anchor("b.txt", 2, 2, "TODO: tidy this up", emptyList(), emptyList())
+        val pane = DetailPane(project)
+        pane.show(io.github.konove.notmytodo.model.TodoItem("b.txt:2", "TODO: tidy this up", anchors = listOf(anchor)))
+        assertTrue(pane.moveVisible)
+        assertFalse(pane.moveEnabled)
+        assertEquals("Move to Project…", pane.moveText)
+    }
+
+    fun `test a move to this project goes to the key it is made under, and the balloon names that key`() {
+        TestStore.reset(project, made = false)
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs"))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val wanted = view.home
+        // Another repository takes the key this folder would get, after the chooser was opened.
+        stores.dir(wanted).writeRecord(ProjectRecord(wanted, checkouts = listOf("/somewhere/else")))
+        val shown = ArrayList<com.intellij.notification.Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(com.intellij.notification.Notifications.TOPIC, object : com.intellij.notification.Notifications {
+            override fun notify(notification: com.intellij.notification.Notification) {
+                shown.add(notification)
+            }
+        })
+        val pane = DetailPane(project)
+        val item = view.find("infra/T-1")!!
+        pane.show(item)
+        val before = TestDialogManager.setTestDialog { Messages.OK }
+        try {
+            pane.moveTo(item, null)
+        } finally {
+            TestDialogManager.setTestDialog(before)
+        }
+        assertEquals("$wanted-2", view.home)
+        assertEquals(listOf("theirs"), TodoService.getInstance(project).store.items.map { it.title })
+        assertTrue(stores.items(wanted).items.isEmpty())
+        assertEquals("Moved infra/T-1 to $wanted-2 as T-1.", shown.last().content)
+    }
+
+    fun `test a note for this project goes to the key the folder has when it is saved`() {
+        TestStore.reset(project, made = false)
+        val stores = StoreService.getInstance().store
+        val wanted = StoreView.getInstance(project).home
+        val dialog = CaptureDialog(project, null)
+        try {
+            // Another repository takes the key while the dialog is open, and the folder is keyed again.
+            stores.dir(wanted).writeRecord(ProjectRecord(wanted, checkouts = listOf("/somewhere/else")))
+            TodoService.getInstance(project).reload()
+            assertEquals("$wanted-2", StoreView.getInstance(project).home)
+            dialog.typeTitle("a note")
+            assertTrue(dialog.save())
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+        assertTrue(stores.items(wanted).items.isEmpty())
+        assertEquals(listOf("a note"), TodoService.getInstance(project).store.items.map { it.title })
     }
 }
