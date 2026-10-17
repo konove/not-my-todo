@@ -1,8 +1,11 @@
 package io.github.konove.notmytodo.ide
 
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.TestStore
+import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.store.Draft
 import io.github.konove.notmytodo.store.ProjectRecord
 import java.nio.file.Files
@@ -51,5 +54,29 @@ class CheckoutsTest : BasePlatformTestCase() {
         Checkouts.goTo(project, "infra/T-1")
         Checkouts.goTo(project, "inbox/T-1")
         assertTrue(asked.isEmpty())
+    }
+
+    fun `test a note of another project asks for no window, though it has a checkout`() {
+        other("infra", Files.createTempDirectory("nmt-checkout"))
+        ItemActions.navigate(project, StoreView.getInstance(project).find("infra/T-1")!!)
+        assertTrue(asked.isEmpty())
+    }
+
+    fun `test Jump on an anchor goes to that anchor in the window of the checkout`() {
+        val service = TodoService.getInstance(project)
+        val a = myFixture.addFileToProject("a.txt", "one\ntwo\n").virtualFile
+        val b = myFixture.addFileToProject("b.txt", "one\ntwo\nthree\n").virtualFile
+        val anchors = listOf(
+            AnchorResolver.capture(service.relativePath(a)!!, "one\ntwo\n", 1, 1),
+            AnchorResolver.capture(service.relativePath(b)!!, "one\ntwo\nthree\n", 3, 3),
+        )
+        service.store.create(Draft("two places", anchors = anchors))
+        // The window given is this one, and the item, named as another project would name it, is its own there.
+        Checkouts.window = { p, path, ref -> asked += path to ref; p }
+        val item = service.store.find("T-1")!!.copy(id = "${service.store.key}/T-1")
+        ItemActions.navigate(project, item, item.anchors[1])
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor!!
+        assertEquals(b, FileDocumentManager.getInstance().getFile(editor.document))
+        assertEquals(2, editor.caretModel.logicalPosition.line)
     }
 }

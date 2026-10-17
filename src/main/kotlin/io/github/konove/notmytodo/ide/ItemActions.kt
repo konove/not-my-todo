@@ -47,10 +47,13 @@ object ItemActions {
         }
     }
 
-    /** Opens the item's first anchor in the editor, or [anchor] when one is named. Another project's item is opened in the window of its checkout. */
+    /**
+     * Opens the item's first anchor in the editor, or [anchor] when one is named. Another project's item is opened in the
+     * window of its checkout, and a note of it, with no code to go to, opens no window.
+     */
     fun navigate(project: Project, item: TodoItem, anchor: Anchor? = item.anchor) {
-        if (ViewIds.isElsewhere(item.id)) return Checkouts.goTo(project, item.id)
         if (anchor == null) return
+        if (ViewIds.isElsewhere(item.id)) return Checkouts.goTo(project, item.id, maxOf(0, item.anchors.indexOf(anchor)))
         val file = TodoService.getInstance(project).findFile(anchor.path) ?: return
         OpenFileDescriptor(project, file, maxOf(0, anchor.startLine - 1), 0).navigate(true)
     }

@@ -23,8 +23,11 @@ object Checkouts {
         }
     }
 
-    /** Goes to the code of [viewId], an item of another project. With no checkout here there is nowhere to go. */
-    fun goTo(project: Project, viewId: String) {
+    /**
+     * Goes to the code of [viewId], an item of another project, at its anchor [index]. With no checkout here there is
+     * nowhere to go. The anchor is named by its place in the list, since that window may have moved its lines.
+     */
+    fun goTo(project: Project, viewId: String, index: Int = 0) {
         val view = StoreView.getInstance(project)
         val ref = ViewIds.split(viewId, view.home) ?: return
         val checkout = view.checkout(ref.project!!) ?: return
@@ -33,6 +36,6 @@ object Checkouts {
         // A checkout may be recorded under two projects; only the window of this one has its item.
         val store = TodoService.getInstance(there).store
         if (store.key != ref.project) return
-        store.find(ref.id)?.let { ItemActions.navigate(there, it) }
+        store.find(ref.id)?.let { ItemActions.navigate(there, it, it.anchors.getOrNull(index)) }
     }
 }
