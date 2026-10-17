@@ -18,6 +18,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.konove.notmytodo.ide.TodoService
+import io.github.konove.notmytodo.ide.expiry
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
@@ -47,12 +48,13 @@ class EditorDecorator(private val project: Project) : Disposable {
     private val service get() = TodoService.getInstance(project)
     private val highlighters = ArrayList<RangeHighlighter>()
     private var started = false
+    private val expired = expiry()
 
     fun start() {
         if (started) return
         started = true
         service.addListener {
-            ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
+            ApplicationManager.getApplication().invokeLater({ refresh() }, expired)
         }
         project.messageBus.connect(this).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
@@ -62,7 +64,7 @@ class EditorDecorator(private val project: Project) : Disposable {
         )
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(
             TodoSettingsListener.TOPIC,
-            TodoSettingsListener { ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed) },
+            TodoSettingsListener { ApplicationManager.getApplication().invokeLater({ refresh() }, expired) },
         )
         refresh()
     }

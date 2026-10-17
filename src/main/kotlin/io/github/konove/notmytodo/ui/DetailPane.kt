@@ -17,6 +17,7 @@ import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.util.EditorUtil
+import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.DumbAware
@@ -235,7 +236,11 @@ internal class Columns(
  * time; an item with several is stepped through with the arrows beside the place.
  * The Edit button swaps the title, facts and details for fields; Save writes them.
  */
-class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
+class DetailPane(
+    private val project: Project,
+    /** True once the panel the pane is in is disposed: what the pane asks the event thread to do expires with it. */
+    private val expired: Condition<Any?>,
+) : JPanel(BorderLayout()) {
     private val view get() = StoreView.getInstance(project)
     private var current: TodoItem? = null
 
@@ -640,7 +645,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         // The fixing commit is looked for in this checkout's git, which knows nothing of another project's commits.
         val text = ItemText.html(if (own) fixes.shown(item) else item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
         // The commit that fixed it is looked up in the background and shown when it is found.
-        if (own && fixes.derives(item)) fixes.refreshLater { if (current === item) show(item) }
+        if (own && fixes.derives(item)) fixes.refreshLater(expired) { if (current === item) show(item) }
         if (text != shownDetails) {
             shownDetails = text
             viewDetails.text = text
@@ -691,7 +696,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
                     away = got
                     if (current == item) show(item)
                 }
-            }, project.disposed)
+            }, expired)
         }
     }
 

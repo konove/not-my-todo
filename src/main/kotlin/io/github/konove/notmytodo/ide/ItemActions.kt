@@ -247,7 +247,8 @@ object ItemActions {
         when (target) {
             // The send writes to a socket with no timeout, so a stalled session must not block the event thread.
             FixTarget.SESSION -> ApplicationManager.getApplication().executeOnPooledThread {
-                val sent = project.service<ChannelServer>().send(prompt, itemIds)
+                val server = project.service<ChannelServer>()
+                val sent = server.send(prompt, itemIds)
                 ApplicationManager.getApplication().invokeLater({
                     if (sent) {
                         // Claude Code does not confirm; if the prompt did not arrive, a new tab is one click away.
@@ -259,7 +260,7 @@ object ItemActions {
                         val where = if (next == FixTarget.TERMINAL) "a new terminal tab" else "the clipboard"
                         notify(project, "The Claude Code session is no longer connected. The prompt went to $where instead.", null)
                     }
-                }, project.disposed)
+                }, server.expired)
             }
             FixTarget.TERMINAL -> ClaudeLauncher.launch(project, prompt)
             FixTarget.CLIPBOARD -> CopyPasteManager.getInstance().setContents(StringSelection(prompt))

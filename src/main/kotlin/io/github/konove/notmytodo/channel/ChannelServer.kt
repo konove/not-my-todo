@@ -4,6 +4,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Condition
+import com.intellij.openapi.util.Disposer
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.settings.TodoSettingsListener
 import java.io.IOException
@@ -22,6 +24,11 @@ class ChannelServer(project: Project) : Disposable {
     val running: Boolean get() = hub?.running == true
     val connected: Int get() = hub?.connected ?: 0
     val withoutFlag: Int get() = hub?.withoutFlag ?: 0
+
+    private val disposed = Disposer.newCheckedDisposable(this)
+
+    /** True once disposed, for what a send leaves the event thread to do (see `ide/Expiry.kt`). */
+    val expired = Condition<Any?> { disposed.isDisposed }
 
     init {
         ApplicationManager.getApplication().messageBus.connect(this)

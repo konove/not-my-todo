@@ -3,6 +3,7 @@ package io.github.konove.notmytodo.ide
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Condition
 import io.github.konove.notmytodo.model.TodoItem
 import java.nio.file.Path
 import io.github.konove.notmytodo.store.FixCommits as CommitLog
@@ -33,11 +34,11 @@ class FixCommits(private val project: Project) {
     /** Asks git again when there were commits since it was last asked; true when the answer is another one. It starts a process: not for the event thread. */
     fun refresh(): Boolean = current.refresh()
 
-    /** Does [refresh] in the background and calls [changed] on the event thread when there is something new to show. */
-    fun refreshLater(changed: () -> Unit) {
+    /** Does [refresh] in the background and calls [changed] on the event thread when there is something new to show, unless [expired] by then. */
+    fun refreshLater(expired: Condition<Any?>, changed: () -> Unit) {
         ApplicationManager.getApplication().executeOnPooledThread {
             if (!project.isDisposed && refresh()) {
-                ApplicationManager.getApplication().invokeLater({ changed() }, project.disposed)
+                ApplicationManager.getApplication().invokeLater({ changed() }, expired)
             }
         }
     }

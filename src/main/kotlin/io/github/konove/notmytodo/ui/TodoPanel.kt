@@ -52,6 +52,7 @@ import io.github.konove.notmytodo.ide.StoreService
 import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.ide.ViewIds
+import io.github.konove.notmytodo.ide.expiry
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.ItemRef
@@ -114,6 +115,7 @@ class TodoPanel(
     private val service = TodoService.getInstance(project)
     private val store get() = service.store
     private val view = StoreView.getInstance(project)
+    private val expired = expiry()
 
     /** Which projects' items are listed; kept for the project between sessions. */
     internal var projectScope: ProjectScope = PropertiesComponent.getInstance(project).getValue(PROJECTS_KEY)
@@ -151,7 +153,7 @@ class TodoPanel(
     private val errorLabel = JBLabel()
     private val cards = CardLayout()
     private val body = JPanel(cards)
-    internal val detail = DetailPane(project)
+    internal val detail = DetailPane(project, expired)
     private var scope = Scope.ALL
     private var tag: String? = null
     private val codeAvailable: Boolean
@@ -172,7 +174,7 @@ class TodoPanel(
     private val fileScope = ScopeChooserCombo(project, false, false, PropertiesComponent.getInstance(project).getValue(SCOPE_KEY, "Project Files"))
     private var refreshing = false
     private val storeListener: () -> Unit = {
-        ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
+        ApplicationManager.getApplication().invokeLater({ refresh() }, expired)
     }
 
     private val selected: TodoItem? get() = (table.selectedValue as? ItemRow)?.item
@@ -329,7 +331,7 @@ class TodoPanel(
                     }
                     refresh()
                     rescan()
-                }, project.disposed)
+                }, expired)
             },
         )
         refresh()

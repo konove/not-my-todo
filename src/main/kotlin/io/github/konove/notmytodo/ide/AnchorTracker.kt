@@ -60,6 +60,7 @@ class AnchorTracker(private val project: Project) : Disposable {
     /** The anchors without a marker that were looked for in their file's text, as the store had them then. */
     private val checked = HashMap<Key, Anchor>()
     private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
+    private val expired = expiry()
     private var started = false
 
     fun start() {
@@ -90,7 +91,7 @@ class AnchorTracker(private val project: Project) : Disposable {
             }
         }, this)
         service.addListener {
-            ApplicationManager.getApplication().invokeLater({ syncChanged() }, project.disposed)
+            ApplicationManager.getApplication().invokeLater({ syncChanged() }, expired)
         }
         syncChanged()
     }

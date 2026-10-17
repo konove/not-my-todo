@@ -21,6 +21,7 @@ import io.github.konove.notmytodo.ide.StoreService
 import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.store.ProjectRecord
 import io.github.konove.notmytodo.ide.TodoService
+import io.github.konove.notmytodo.ide.expiry
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -202,7 +203,7 @@ class UiSmokeTest : BasePlatformTestCase() {
     fun `test save keeps a change someone else made to another field`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("typo in titel"))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(item)
         pane.titleField.text = "typo in title"
         pane.show(store.update(item.id) { it.copy(status = Status.FIXED) })
@@ -215,7 +216,7 @@ class UiSmokeTest : BasePlatformTestCase() {
     fun `test status buttons keep unsaved text`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("a"))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(item)
         pane.titleField.text = "b"
         pane.setStatus(Status.IN_PROGRESS)
@@ -230,7 +231,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals("tidy this up", CodeTodos.trackedTitle(found))
         assertEquals(listOf(found), CodeTodos.filter(listOf(found), "TIDY b.txt"))
         assertEquals(emptyList<Any>(), CodeTodos.filter(listOf(found), "absent"))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(found)
         pane.save()
         assertTrue(TodoService.getInstance(project).store.items.isEmpty())
@@ -267,7 +268,7 @@ class UiSmokeTest : BasePlatformTestCase() {
     fun `test detail pane shows comments under the details and when there are none`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("a"))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(item)
         pane.show(store.comment(item.id, Author.AGENT, "found the **cause**"))
         val shown = pane.viewDetails.document.let { it.getText(0, it.length) }
@@ -296,7 +297,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val path = service.relativePath(myFixture.configureByText("a.txt", text).virtualFile)!!
         val store = service.store
         val anchored = store.create(Draft("anchored", details = "why", anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(anchored)
         fun layout(width: Int) {
             pane.setSize(width, 400)
@@ -322,7 +323,7 @@ class UiSmokeTest : BasePlatformTestCase() {
     fun `test the detail pane shows an item as chips, and a flag in place of its tag`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("a", tags = listOf("x")))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(store.update(item.id) { it.copy(status = Status.FIXED) })
         assertEquals(listOf("P2", "Fixed, review", "${item.id}  ·  note", "#x"), pane.chips())
         pane.show(store.update(item.id) { it.copy(tags = listOf("y", "needs-decision", "z")) })
@@ -346,7 +347,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val tags = (1..12).map { "a-rather-long-tag-$it" }
         val note = store.create(Draft(long, details = "why ".repeat(200), tags = tags))
         val anchored = store.create(Draft(long, details = "why ".repeat(200), tags = tags, anchors = listOf(AnchorResolver.capture(path, text, 2, 2))))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         fun deep(c: java.awt.Container) {
             // Without a window nothing is ever valid, so a resize does not invalidate by itself.
             c.invalidate()
@@ -379,7 +380,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val item = store.create(Draft("several", anchors = listOf(
             AnchorResolver.capture(path, text, 2, 2), io.github.konove.notmytodo.model.Anchor.file(path),
         )))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(item)
         assertTrue(pane.whereLabel.text, pane.whereLabel.text.contains("1 of 2") && pane.whereLabel.text.contains(">s.txt:2<"))
         assertTrue(pane.anchorSteps.isVisible)
@@ -402,7 +403,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val whole = store.create(Draft("whole"))
         val first = store.create(Draft("first", parent = whole.id))
         val second = store.create(Draft("second", blockedBy = listOf(first.id), parent = whole.id))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         var opened: String? = null
         pane.onOpen = { opened = it }
 
@@ -436,7 +437,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(ItemText.html(fixed.copy(status = Status.WONT_FIX, fixedIn = null)).contains("<b>Closed</b>"))
         assertFalse(ItemText.html(item.copy(source = null)).contains("From"))
 
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(fixed)
         assertTrue(pane.viewDetailsScroll.isVisible)
         pane.historyFields[1].text = "abc1234"
@@ -473,7 +474,7 @@ class UiSmokeTest : BasePlatformTestCase() {
     fun `test the detail pane shows and edits the effort of an item`() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("a", effort = io.github.konove.notmytodo.model.Effort.S))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(item)
         assertEquals(listOf("P2", "S", "Open"), pane.chips().take(3))
         pane.effortBox.selectedItem = io.github.konove.notmytodo.model.Effort.L
@@ -543,6 +544,18 @@ class UiSmokeTest : BasePlatformTestCase() {
         } finally {
             Disposer.dispose(panel)
         }
+    }
+
+    fun `test a refresh still queued when the panel is disposed is dropped`() {
+        val summaries = ArrayList<String>()
+        val panel = TodoPanel(project, onSummary = { summaries += it })
+        // A change queues a refresh. Behind a modal dialog, such as the one the plugin is uninstalled from, it waits;
+        // the unload drops what has expired, and a refresh left to run later would use the classes of the plugin installed since.
+        TodoService.getInstance(project).store.create(Draft("queued"))
+        summaries.clear()
+        Disposer.dispose(panel)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        assertEquals(emptyList<String>(), summaries)
     }
 
     fun `test only item rows get a project chip, never a code comment`() {
@@ -656,7 +669,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val view = StoreView.getInstance(project)
         view.load()
         val reads = java.util.concurrent.CopyOnWriteArrayList<String>()
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.awayRead = { key, path ->
             reads += "$key:$path on ${if (com.intellij.openapi.application.ApplicationManager.getApplication().isDispatchThread) "edt" else "pool"}"
             DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n")
@@ -677,7 +690,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         view.load()
         val mine = TodoService.getInstance(project).store.create(Draft("mine"))
         val gate = java.util.concurrent.CountDownLatch(1)
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.awayRead = { _, _ -> gate.await(); DetailPane.Away(java.nio.file.Path.of("/co"), "stale\nstale\nstale\n") }
         pane.show(view.find("infra/T-1"))
         pane.show(mine)
@@ -696,7 +709,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val mine = TodoService.getInstance(project).store.create(Draft("mine"))
         val gate = java.util.concurrent.CountDownLatch(1)
         var reads = 0
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.awayRead = { _, _ -> reads++; gate.await(); DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n") }
         val item = view.find("infra/T-1")!!
         pane.show(item)
@@ -718,7 +731,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val view = StoreView.getInstance(project)
         view.load()
         var reads = 0
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.awayRead = { _, _ -> reads++; DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n") }
         val item = view.find("infra/T-1")!!
         pane.show(item)
@@ -733,7 +746,7 @@ class UiSmokeTest : BasePlatformTestCase() {
     fun `test an item of a project with no checkout can be edited and closed, and its Fix is disabled`() {
         val view = StoreView.getInstance(project)
         val note = view.create(io.github.konove.notmytodo.store.Store.INBOX, Draft("a note", anchors = listOf(AnchorResolver.capture("x.txt", text, 2, 2))))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         val mine = TodoService.getInstance(project).store.create(Draft("mine"))
         pane.show(mine)
         assertTrue(pane.fixEnabled)
@@ -767,7 +780,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         stores.items("infra").create(Draft("theirs"))
         val view = StoreView.getInstance(project)
         view.load()
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(view.find("infra/T-1"))
         pane.linkFields[0].text = mine.id
         pane.save()
@@ -783,7 +796,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         stores.dir("infra").writeRecord(ProjectRecord("infra"))
         stores.items("infra").create(Draft("theirs", blockedBy = listOf("${view.home}/T-1")))
         view.load()
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(view.find("infra/T-1"))
         assertEquals("T-1", pane.linkFields[0].text)
         pane.titleField.text = "theirs, renamed"
@@ -799,7 +812,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         stores.items("infra").create(Draft("theirs"))
         StoreView.getInstance(project).load()
         val mine = TodoService.getInstance(project).store.create(Draft("mine"))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(mine)
         pane.linkFields[0].text = "infra/t-1"
         pane.save()
@@ -904,7 +917,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         val store = TodoService.getInstance(project).store
         val item = store.create(Draft("whole"))
         val part = store.create(Draft("part", parent = item.id))
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(store.find(item.id))
         assertTrue(pane.moveEnabled)
         pane.show(store.find(part.id))
@@ -914,7 +927,7 @@ class UiSmokeTest : BasePlatformTestCase() {
 
     fun `test Move to Project is shown but disabled for a code comment`() {
         val anchor = io.github.konove.notmytodo.model.Anchor("b.txt", 2, 2, "TODO: tidy this up", emptyList(), emptyList())
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         pane.show(io.github.konove.notmytodo.model.TodoItem("b.txt:2", "TODO: tidy this up", anchors = listOf(anchor)))
         assertTrue(pane.moveVisible)
         assertFalse(pane.moveEnabled)
@@ -937,7 +950,7 @@ class UiSmokeTest : BasePlatformTestCase() {
                 shown.add(notification)
             }
         })
-        val pane = DetailPane(project)
+        val pane = DetailPane(project, testRootDisposable.expiry())
         val item = view.find("infra/T-1")!!
         pane.show(item)
         val before = TestDialogManager.setTestDialog { Messages.OK }
