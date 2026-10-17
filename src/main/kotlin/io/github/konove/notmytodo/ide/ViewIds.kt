@@ -28,5 +28,6 @@ object ViewIds {
     /** The project and the bare id that [viewId] names; null when it is no item id. */
     fun split(viewId: String, home: String): ItemRef? = ItemRef.parse(viewId)?.let { ItemRef(it.project ?: home, it.id) }
 
-    fun isElsewhere(viewId: String): Boolean = '/' in viewId
+    /** True for another project's qualified id; a code comment's `file:line` id is not one. */
+    fun isElsewhere(viewId: String): Boolean = ItemRef.parse(viewId)?.project != null
 }

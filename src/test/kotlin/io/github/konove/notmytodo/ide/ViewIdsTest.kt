@@ -46,6 +46,7 @@ class ViewIdsTest {
         assertNull(ViewIds.split("src/a.kt:12", "app"))
         assertTrue(ViewIds.isElsewhere("infra/T-2"))
         assertFalse(ViewIds.isElsewhere("T-2"))
+        assertFalse(ViewIds.isElsewhere("src/a.kt:12"))
     }
 
     @Test

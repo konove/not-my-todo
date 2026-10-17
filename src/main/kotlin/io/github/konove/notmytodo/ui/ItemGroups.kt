@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.ide.CodeTodos
+import io.github.konove.notmytodo.ide.ViewIds
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
@@ -79,7 +80,7 @@ object ItemGroups {
             GroupBy.STATUS -> if (CodeTodos.isCode(item)) null else item.status.ordinal to item.status.label
             GroupBy.PRIORITY -> if (CodeTodos.isCode(item)) null else links.priority(item).let { it.ordinal to it.name }
             // This project first, the others by key.
-            GroupBy.PROJECT -> if (CodeTodos.isCode(item)) null else if ('/' in item.id) 1 to item.id.substringBefore('/') else 0 to THIS_PROJECT
+            GroupBy.PROJECT -> if (CodeTodos.isCode(item)) null else if (ViewIds.isElsewhere(item.id)) 1 to item.id.substringBefore('/') else 0 to THIS_PROJECT
         }
     }
 

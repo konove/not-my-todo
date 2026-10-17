@@ -1,5 +1,6 @@
 package io.github.konove.notmytodo.ui
 
+import io.github.konove.notmytodo.ide.ViewIds
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.ItemId
@@ -69,7 +70,7 @@ object ItemFilter {
     private fun inScope(item: TodoItem, query: ItemQuery, links: Links): Boolean = when (query.scope) {
         Scope.ALL -> true
         // The path of another project's item is in another checkout, whatever it says.
-        Scope.THIS_FILE -> query.currentPath != null && '/' !in item.id && item.anchors.any { it.path == query.currentPath }
+        Scope.THIS_FILE -> query.currentPath != null && !ViewIds.isElsewhere(item.id) && item.anchors.any { it.path == query.currentPath }
         Scope.NOTES -> item.anchors.isEmpty()
         Scope.ANCHOR_LOST -> item.anyLost
         Scope.AGENT_READY ->

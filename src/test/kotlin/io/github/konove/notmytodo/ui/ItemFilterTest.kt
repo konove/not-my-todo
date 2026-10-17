@@ -268,9 +268,15 @@ class ItemFilterTest {
 
     @Test
     fun `This file holds only this project's items`() {
-        val anchor = io.github.konove.notmytodo.model.Anchor("src/a.kt", 1, 1, "x", emptyList(), emptyList())
+        val anchor = Anchor("src/a.kt", 1, 1, "x", emptyList(), emptyList())
         val items = listOf(TodoItem(id = "infra/T-2", title = "b", anchors = listOf(anchor)), TodoItem(id = "T-2", title = "a", anchors = listOf(anchor)))
         assertEquals(listOf("T-2"), ItemFilter.apply(items, ItemQuery(scope = Scope.THIS_FILE, currentPath = "src/a.kt")).map { it.id })
+    }
+
+    @Test
+    fun `This file keeps a code comment of a subdirectory`() {
+        val comment = TodoItem(id = "src/a.kt:1", title = "x", anchors = listOf(Anchor("src/a.kt", 1, 1, "x", emptyList(), emptyList())))
+        assertEquals(listOf("src/a.kt:1"), ItemFilter.apply(listOf(comment), ItemQuery(scope = Scope.THIS_FILE, currentPath = "src/a.kt")).map { it.id })
     }
 
     @Test
