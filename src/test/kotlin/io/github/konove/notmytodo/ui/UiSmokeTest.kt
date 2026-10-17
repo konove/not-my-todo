@@ -641,7 +641,7 @@ class UiSmokeTest : BasePlatformTestCase() {
             DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n")
         }
         pane.show(view.find("infra/T-1"))
-        PlatformTestUtil.waitWhileBusy { reads.isEmpty() }
+        PlatformTestUtil.waitWhileBusy { !pane.codeText.contains("line one") }
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertEquals(listOf("infra:src/a.kt on pool"), reads.toList())
         assertTrue(pane.fixEnabled)
@@ -661,8 +661,28 @@ class UiSmokeTest : BasePlatformTestCase() {
         pane.show(view.find("infra/T-1"))
         pane.show(mine)
         gate.countDown()
+        pane.awayTask!!.get()
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertFalse(pane.codeText, pane.codeText.contains("stale"))
+    }
+
+    fun `test an equal copy of the item shown does not read again nor blank the pane`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs", anchors = listOf(AnchorResolver.capture("src/a.kt", text, 2, 2))))
+        val view = StoreView.getInstance(project)
+        view.load()
+        var reads = 0
+        val pane = DetailPane(project)
+        pane.awayRead = { _, _ -> reads++; DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n") }
+        val item = view.find("infra/T-1")!!
+        pane.show(item)
+        PlatformTestUtil.waitWhileBusy { !pane.codeText.contains("line one") }
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        pane.show(item.copy())
+        assertEquals(1, reads)
+        assertTrue(pane.fixEnabled)
+        assertTrue(pane.codeText, pane.codeText.contains("line one"))
     }
 
     fun `test an item of a project with no checkout can be edited and closed, and its Fix is disabled`() {

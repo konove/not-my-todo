@@ -7,6 +7,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.actionSystem.ToggleAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.util.EditorUtil
@@ -69,6 +70,8 @@ import java.awt.Shape
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
+import java.nio.file.Path
+import java.util.concurrent.Future
 import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -227,7 +230,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private var current: TodoItem? = null
 
     /** What was read of another project's checkout for the item shown: the checkout, and the text of the shown anchor's file. */
-    internal data class Away(val checkout: java.nio.file.Path?, val text: String?)
+    internal data class Away(val checkout: Path?, val text: String?)
 
     /** Reads another project's checkout and one file of it, on a pooled thread. Replaced in tests. */
     internal var awayRead: (String, String?) -> Away = { key, path ->
@@ -237,6 +240,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     /** The read for [awayFor], once done; [awayFor] is the item and anchor it was asked for. */
     private var away: Away? = null
     private var awayFor: Pair<TodoItem, Int>? = null
+
+    /** The pooled read last asked for, so a test can wait for it to have posted its result. */
+    internal var awayTask: Future<*>? = null
 
     /** Which of the item's anchors the code box shows, and Jump, Re-attach and Remove act on. */
     private var anchorIndex = 0
@@ -562,9 +568,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
         // Another project's checkout is looked at on a pooled thread; the pane is filled in again when it has been.
         // A read already asked for this item and anchor is waited for, not asked again: the pane is shown often.
-        val asked = !code && !own && awayFor?.let { it.first === item && it.second == anchorIndex } == true
+        val asked = !code && !own && awayFor?.let { it.first == item && it.second == anchorIndex } == true
         if (!code && !own && !asked) readAway(item, anchorIndex, anchor?.takeUnless { it.lost }?.path)
-        val read = if (asked) away else null
+        val read = away
         val here = code || own || read?.checkout != null
         fixButton.isEnabled = here
         fixButton.toolTipText = when {
@@ -581,14 +587,16 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     /** Asks for the checkout of [key] and the file at [path] on a pooled thread, and shows [item] again when they are read. */
     private fun readAway(item: TodoItem, index: Int, path: String?) {
         val asked = item to index
+        // The panel shows equal copies of an item often. A read for the same item and anchor as the one shown
+        // keeps its result on show until the new one lands, so the pane does not flicker.
+        if (awayFor?.let { it.first.id == item.id && it.second == index } != true) away = null
         awayFor = asked
-        away = null
         val key = this.key
-        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
-            val got = awayRead(key, path)
-            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater({
+        awayTask = ApplicationManager.getApplication().executeOnPooledThread {
+            val got = runCatching { awayRead(key, path) }.getOrElse { Away(null, null) }
+            ApplicationManager.getApplication().invokeLater({
                 // The user may have chosen another item in the meantime.
-                if (awayFor === asked && current === item) {
+                if (awayFor === asked && current == item) {
                     away = got
                     show(item)
                 }
