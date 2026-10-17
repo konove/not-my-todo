@@ -157,6 +157,28 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `the agent loads every todo tool in one ToolSearch, before the prompt first names one`() {
+        val load = "load them all in one call, with the query \"select:mcp__notmytodo-store__todo_get,mcp__notmytodo-store__todo_update,"
+        val full = PromptBuilder.build(anchored, files, "tests pass")
+        assertTrue(full, full.contains(load))
+        assertTrue(full, full.contains("mcp__notmytodo-store__todo_batch,") && full.contains(",mcp__notmytodo-store__todo_projects\"."))
+        assertTrue(full.indexOf(load) in full.indexOf(">   31") until full.indexOf("Done when"))
+        val short = PromptBuilder.build(anchored, files, "", PromptOptions(short = true))
+        assertTrue(short, short.indexOf(load) in 0 until short.indexOf("todo_get tool, id"))
+        assertEquals(1, Regex("ToolSearch").findAll(short).count())
+
+        val note = TodoItem(id = "T-2", title = "decide save versioning")
+        val all = PromptBuilder.buildAll(listOf(anchored, note), files)
+        assertEquals(1, Regex("ToolSearch").findAll(all).count())
+        assertTrue(all, all.indexOf(load) < all.indexOf("Fix TODO item T-14"))
+
+        val anchor = io.github.konove.notmytodo.model.Anchor("a.c", 2, 2, "// TODO: tidy", emptyList(), emptyList())
+        val comment = TodoItem("a.c:2", "TODO: tidy", anchors = listOf(anchor))
+        assertFalse(PromptBuilder.build(comment, mapOf("a.c" to "one\n// TODO: tidy\nthree\n"), "").contains("ToolSearch"))
+        assertFalse(PromptBuilder.buildAll(listOf(comment), mapOf("a.c" to "one\n// TODO: tidy\nthree\n")).contains("ToolSearch"))
+    }
+
+    @Test
     fun `the fallback names the item's file in the store`() {
         val p = PromptBuilder.build(anchored, files, "", PromptOptions(itemsDir = "/store/projects/demo/items"))
         assertTrue(p, p.contains("If that tool is not available, set \"status\": \"fixed\" in /store/projects/demo/items/T-14.json. "))
@@ -194,7 +216,7 @@ class PromptBuilderTest {
         val p = PromptBuilder.build(anchored, files, "")
         assertTrue(p, p.contains("do not guess and do not change the code. Call todo_update with id \"T-14\" and toDecide, "))
         assertTrue(p, p.contains("which says what has to be decided; that marks the item as waiting for the user. Leave the status and the details alone.\n"))
-        assertFalse(p.contains("todo_comment"))
+        assertFalse(p.contains("todo_comment tool"))
     }
 
     @Test
@@ -246,7 +268,7 @@ class PromptBuilderTest {
         assertTrue(p, p.contains("\nTo decide:\nPer unit or per cell?\n"))
         assertTrue(p.indexOf("Details:") < p.indexOf("To decide:") && p.indexOf("To decide:") < p.indexOf("Location:"))
         assertTrue(p, p.contains("before you change anything, call the todo_decided tool with id \"T-14\""))
-        assertTrue(p.indexOf("wait for the answer") < p.indexOf("todo_decided") && p.indexOf("todo_decided") < p.indexOf("When the user has chosen"))
+        assertTrue(p.indexOf("wait for the answer") < p.indexOf("todo_decided tool") && p.indexOf("todo_decided tool") < p.indexOf("When the user has chosen"))
         assertFalse(PromptBuilder.build(anchored, files, "").contains("To decide:"))
         assertFalse(PromptBuilder.build(waiting, files, "", PromptOptions(short = true)).contains("To decide:"))
     }

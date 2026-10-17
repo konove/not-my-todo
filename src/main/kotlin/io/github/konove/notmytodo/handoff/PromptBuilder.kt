@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.handoff
 
 import io.github.konove.notmytodo.anchor.AnchorResolver
+import io.github.konove.notmytodo.ide.StoreRegistration
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.ItemRef
 import io.github.konove.notmytodo.model.Status
@@ -35,18 +36,31 @@ object PromptBuilder {
         "Pass a resolution too, which says in a sentence or two what you did. If you commit the work, do it after this call and name " +
             "the item id in the commit message: that commit is then shown as the one that fixed it, and fixedIn need not be passed. "
 
+    /** Every tool of the store's server, so that an agent whose tools are deferred loads them in one ToolSearch, not one round each. */
+    private val TOOLS = listOf(
+        "todo_get", "todo_update", "todo_comment", "todo_decided", "todo_batch",
+        "todo_list", "todo_create", "todo_move", "todo_delete", "todo_projects",
+    ).joinToString(",", prefix = "select:") { "mcp__${StoreRegistration.NAME}__$it" }
+
+    private val LOAD_TOOLS =
+        "\nThe todo tools come from the ${StoreRegistration.NAME} server. If they have to be loaded with ToolSearch before you can call them, " +
+            "load them all in one call, with the query \"$TOOLS\".\n"
+
     fun build(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions = PromptOptions()): String =
-        one(item, files, doneWhen, options, options.extra)
+        one(item, files, doneWhen, options, options.extra, tools = true)
 
     /** One prompt for several items, each with its own instructions. */
     fun buildAll(items: List<TodoItem>, files: Map<String, String>, options: PromptOptions = PromptOptions()): String {
         val extra = options.extra.trim()
+        // The tools are loaded once for all the items, unless they are all TODO comments, which need none.
+        val tools = if (items.all { ItemRef.parse(it.id) == null }) "" else "${LOAD_TOOLS.trim()}\n\n"
         return "Fix the following ${items.size} TODO items, one at a time.\n\n" +
-            (if (extra.isEmpty()) "" else "$extra\n\n") +
-            items.joinToString("\n---\n\n") { item -> one(item, files, "", options, "") }
+            (if (extra.isEmpty()) "" else "$extra\n\n") + tools +
+            items.joinToString("\n---\n\n") { item -> one(item, files, "", options, "", tools = false) }
     }
 
-    private fun one(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions, extra: String): String {
+    /** With [tools] the agent is told how to load the todo tools, just before the prompt first names one. */
+    private fun one(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions, extra: String, tools: Boolean): String {
         val out = StringBuilder()
         // A TODO comment found in the code is not in the store, so there is no item to report on or to read. An item of another project has a qualified id, and is an item.
         val comment = ItemRef.parse(item.id) == null
@@ -61,6 +75,7 @@ object PromptBuilder {
             out.append("Title: ${item.title}\n")
         }
         if (options.short && !comment) {
+            if (tools) out.append(LOAD_TOOLS)
             out.append("\nRead the item with the todo_get tool, id \"${item.id}\". ")
             out.append("It returns the details, the comments and the code as it is now.\n")
             if (options.checkoutAt.isNotBlank() && item.anchors.isNotEmpty()) {
@@ -83,6 +98,7 @@ object PromptBuilder {
             out.append("\nThe code is in the checkout of project ${options.absentCheckout}, which is not on this machine; ")
             out.append("the paths are relative to that checkout, not to the folder you are in.\n")
         }
+        if (tools && !comment && !options.short) out.append(LOAD_TOOLS)
 
         if (doneWhen.isNotBlank()) out.append("\nDone when: ${doneWhen.trim()}\n")
         if (extra.isNotBlank()) out.append("\n${extra.trim()}\n")
