@@ -107,6 +107,10 @@ class TodoService(private val project: Project) : Disposable {
             override fun applicationActivated(ideFrame: IdeFrame) {
                 reloadLater()
                 StoreView.getInstance(project).loadLater()
+                // A store server installed since startup is found without a restart; tests must not run claude.
+                if (!StoreServerHint.getInstance().registered && !ApplicationManager.getApplication().isUnitTestMode) {
+                    ApplicationManager.getApplication().executeOnPooledThread { StoreServerHint.getInstance().check(project) }
+                }
             }
         })
     }

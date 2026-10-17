@@ -48,4 +48,38 @@ class StoreServerHintTest : BasePlatformTestCase() {
         StoreServerHint().check(project, missing)
         assertTrue(shown.isEmpty())
     }
+
+    fun `test while not registered it asks again after five minutes, and the balloon still shows once`() {
+        var now = 0L
+        var asks = 0
+        val hint = StoreServerHint().apply { clock = { now } }
+        val counting = StoreRegistration { asks++; ChannelRegistration.Outcome(1, "No MCP server found with name: notmytodo-store") }
+        hint.check(project, counting)
+        now += 60_000
+        hint.check(project, counting)
+        assertEquals(1, asks)
+        now += StoreServerHint.INTERVAL_MS
+        hint.check(project, counting)
+        assertEquals(2, asks)
+        assertEquals(1, shown.size)
+    }
+
+    fun `test a server installed meanwhile is found when it asks again`() {
+        var now = 0L
+        val hint = StoreServerHint().apply { clock = { now } }
+        hint.check(project, missing)
+        now += StoreServerHint.INTERVAL_MS
+        hint.check(project, StoreRegistration { ChannelRegistration.Outcome(0, "") })
+        assertTrue(hint.registered)
+    }
+
+    fun `test once registered it does not ask again`() {
+        var asks = 0
+        val hint = StoreServerHint()
+        val ok = StoreRegistration { asks++; ChannelRegistration.Outcome(0, "") }
+        hint.check(project, ok)
+        hint.clock = { Long.MAX_VALUE / 2 }
+        hint.check(project, ok)
+        assertEquals(1, asks)
+    }
 }
