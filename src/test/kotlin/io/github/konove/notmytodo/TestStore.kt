@@ -2,6 +2,7 @@ package io.github.konove.notmytodo
 
 import com.intellij.openapi.project.Project
 import io.github.konove.notmytodo.ide.StoreService
+import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.ide.TodoService
 import java.nio.file.Path
 
@@ -14,5 +15,7 @@ object TestStore {
         check(own != null && root == Path.of(own)) { "the tests are not running on a store of their own: $root" }
         root.resolve("projects").toFile().deleteRecursively()
         TodoService.getInstance(project).reopen()
+        // The snapshot outlives a test, and the reopen only asks for its read, on a pooled thread.
+        StoreView.getInstance(project).load()
     }
 }

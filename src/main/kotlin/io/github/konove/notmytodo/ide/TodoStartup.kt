@@ -23,6 +23,8 @@ class TodoStartup : ProjectActivity {
         project.service<HandBackWatcher>().start()
         project.service<ChannelServer>().sync()
         withContext(Dispatchers.IO) { StoreService.getInstance().watch() }
+        // The other projects' items, for All projects and for links into them.
+        StoreView.getInstance(project).loadLater()
         // Tests must not write into the user's own configuration directory.
         if (ApplicationManager.getApplication().isUnitTestMode) return
         withContext(Dispatchers.IO) {

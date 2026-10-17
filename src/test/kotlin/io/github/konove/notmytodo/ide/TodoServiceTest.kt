@@ -108,6 +108,7 @@ class TodoServiceTest : BasePlatformTestCase() {
         val stores = StoreService.getInstance().store
         stores.dir("elsewhere").writeRecord(ProjectRecord("elsewhere"))
         stores.items("elsewhere").create(Draft("there first"))
+        StoreView.getInstance(project).load()
         val item = service.store.create(Draft("here", blockedBy = listOf("elsewhere/T-1")))
         assertEquals(listOf("there first"), service.links().openBlockers(item).map { it.title })
     }

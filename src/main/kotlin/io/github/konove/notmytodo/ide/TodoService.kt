@@ -36,6 +36,7 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Owns the store project of the IDE project, and maps between the paths its anchors have and files.
@@ -52,6 +53,9 @@ class TodoService(private val project: Project) : Disposable {
     private val relay: () -> Unit = { tellUnreadable(); fire() }
 
     private val notices = ImportNotices(project)
+
+    /** Set while a reload waits to start: asking again in the meantime asks for nothing more. */
+    private val reloading = AtomicBoolean()
 
     /** The unreadable item files already said, by project and file, so that each is said once. */
     private val toldUnreadable = ConcurrentHashMap.newKeySet<String>()
@@ -118,11 +122,14 @@ class TodoService(private val project: Project) : Disposable {
     /**
      * Asks for the items to be read again when [paths], changed on disk, include a file of the store
      * project. While the project could not be opened, any change in the store may be the one that
-     * lets it. Returns true when it asked.
+     * lets it. A change to another project is read into [StoreView]. Returns true when it asked for this project.
      */
     internal fun changed(paths: List<String>): Boolean {
         val mine = store.dir.path.toString().replace('\\', '/')
-        val wanted = if (available) mine else projectsPath().removeSuffix("/")
+        val projects = projectsPath()
+        fun ours(p: String) = p == mine || p.startsWith("$mine/")
+        if (paths.any { it.startsWith(projects) && !ours(it) }) StoreView.getInstance(project).loadLater()
+        val wanted = if (available) mine else projects.removeSuffix("/")
         if (paths.none { it == wanted || it.startsWith("$wanted/") }) return false
         reloadLater()
         return true
@@ -130,7 +137,11 @@ class TodoService(private val project: Project) : Disposable {
 
     /** Reads the items again away from the event thread: it reads files, and opening the project again may wait for the lock. */
     private fun reloadLater() {
-        ApplicationManager.getApplication().executeOnPooledThread { if (!project.isDisposed) reload() }
+        if (!reloading.compareAndSet(false, true)) return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            reloading.set(false)
+            if (!project.isDisposed) reload()
+        }
     }
 
     private fun projectsPath(): String = StoreService.getInstance().store.root.resolve("projects").toString().replace('\\', '/') + "/"
@@ -146,6 +157,8 @@ class TodoService(private val project: Project) : Disposable {
             }
         }
         relay()
+        // This project's key may be another now: the others are those but it.
+        StoreView.getInstance(project).loadLater()
     }
 
     /**
@@ -161,8 +174,8 @@ class TodoService(private val project: Project) : Disposable {
     /** The folder of the store project's item files, which an agent without the tools can edit. */
     val itemsDir: Path get() = store.dir.path.resolve("items")
 
-    /** How the project's items refer to each other and to the items of other projects. */
-    fun links(): Links = Links(store.items, StoreService.getInstance().store::find)
+    /** How the project's items refer to each other and to the items of other projects, these as [StoreView] last read them. */
+    fun links(): Links = Links(store.items) { StoreView.getInstance(project).find(it) }
 
     /**
      * The store project of [base], made when there is none, with the items of the items file 0.2
