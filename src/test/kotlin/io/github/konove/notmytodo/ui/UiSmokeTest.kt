@@ -648,4 +648,49 @@ class UiSmokeTest : BasePlatformTestCase() {
         val html = ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-1", "a", movedFrom = "inbox/T-4"))
         assertTrue(html, html.contains("Moved from inbox/T-4"))
     }
+
+    fun `test a note with @inbox goes into Inbox, which is made for it`() {
+        val dialog = CaptureDialog(project, null)
+        try {
+            assertTrue(dialog.projectBox.isVisible)
+            assertEquals(StoreView.getInstance(project).home, dialog.projectBox.selectedItem)
+            dialog.typeTitle("call the bank @inbox")
+            assertEquals(io.github.konove.notmytodo.store.Store.INBOX, dialog.projectBox.selectedItem)
+            assertTrue(dialog.save())
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+        val stores = StoreService.getInstance().store
+        assertEquals(listOf("call the bank"), stores.items("inbox").items.map { it.title })
+        assertTrue(TodoService.getInstance(project).store.items.isEmpty())
+    }
+
+    fun `test a note can be put into another project`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        StoreView.getInstance(project).load()
+        val dialog = CaptureDialog(project, null)
+        try {
+            assertEquals(listOf(StoreView.getInstance(project).home, "inbox", "infra"), (0 until dialog.projectBox.itemCount).map { dialog.projectBox.getItemAt(it) })
+            dialog.projectBox.selectedItem = "infra"
+            dialog.typeTitle("theirs")
+            assertTrue(dialog.save())
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+        assertEquals(listOf("theirs"), stores.items("infra").items.map { it.title })
+    }
+
+    fun `test an anchored item with @inbox is refused`() {
+        val dialog = CaptureDialog(project, AnchorResolver.capture("a.txt", text, 2, 2))
+        try {
+            assertFalse(dialog.projectBox.isVisible)
+            dialog.typeTitle("fix it @inbox")
+            assertEquals("An item attached to code stays in this project. Remove the anchor to put it in Inbox.", dialog.refusal())
+            assertFalse(dialog.save())
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+        assertTrue(TodoService.getInstance(project).store.items.isEmpty())
+    }
 }

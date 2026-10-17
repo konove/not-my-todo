@@ -38,4 +38,11 @@ class CaptureParserTest {
         assertNull(CaptureParser.parse("   "))
         assertNull(CaptureParser.parse("!p1 #perf"))
     }
+
+    @Test
+    fun `@inbox asks for Inbox and is not part of the title`() {
+        assertEquals(Captured("call the bank", null, emptyList(), inbox = true), CaptureParser.parse("call the bank @inbox"))
+        assertEquals(Captured("x", null, emptyList(), inbox = true), CaptureParser.parse("@Inbox x"))
+        assertEquals(Captured("mail me@inbox.org", null, emptyList()), CaptureParser.parse("mail me@inbox.org"))
+    }
 }
