@@ -237,6 +237,22 @@ class StoreView(private val project: Project) {
         return ViewIds.shown(made, key, own.key)
     }
 
+    /**
+     * Moves [viewId] to project [to], its parts too with [withParts], and returns its new view id. Its anchors are
+     * dropped: the target has its own checkout. Inbox is made when there is none, and this project when it is pending.
+     * Throws [StoreException] and changes nothing when the store refuses. Takes the store's lock: not for the event thread.
+     */
+    fun move(viewId: String, to: String, withParts: Boolean): String {
+        val t = target(viewId) ?: throw StoreException("there is no item with id $viewId")
+        if (to == home) service.ensureProject() else if (to == Store.INBOX) stores.inbox()
+        val moved = stores.move(t.key, t.id, to, withParts)
+        val id = moved.ids.getValue(t.id)
+        // The store wrote this project's files behind the service's back.
+        if (t.home || to == home) service.store.reload()
+        load()
+        return if (to == home) id else "$to/$id"
+    }
+
     /** How the items of every project refer to each other, by view id. */
     fun links(): Links = Links(items(ProjectScope.ALL), ::find)
 

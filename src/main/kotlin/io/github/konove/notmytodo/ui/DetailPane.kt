@@ -5,9 +5,15 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.actionSystem.ToggleAction
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.util.EditorUtil
@@ -17,6 +23,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.BrowserHyperlinkListener
 import com.intellij.ui.ColorUtil
@@ -359,6 +366,67 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         current?.let { if (tracked) ItemActions.fix(project, it.id) else ItemActions.fixComment(project, it) }
     }
 
+    /** Moves the item shown to another project. A part moves only with the item it is a part of. */
+    private inner class MoveAction : DumbAwareAction("Move to Project…", null, AllIcons.Actions.Forward) {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) = present(e.presentation)
+
+        /** Sets [p] to how the action stands for the item shown. */
+        fun present(p: Presentation) {
+            val part = current?.parent != null
+            p.isVisible = tracked
+            p.isEnabled = tracked && !part
+            p.text = if (part) "Move the item it is a part of" else "Move to Project…"
+        }
+
+        override fun actionPerformed(e: AnActionEvent) = move()
+    }
+
+    private val moveAction = MoveAction()
+    internal val moveEnabled: Boolean get() = Presentation().also(moveAction::present).isEnabled
+    internal val moveText: String get() = Presentation().also(moveAction::present).text
+
+    private fun move() {
+        val item = current ?: return
+        val from = key
+        val keys = view.keys().filter { it != from }
+        if (keys.isEmpty()) {
+            Messages.showInfoMessage(project, "There is no other project to move ${item.id} to.", "Not My TODO")
+            return
+        }
+        // The chooser dialog of Messages is deprecated; a popup answers through a callback.
+        JBPopupFactory.getInstance().createPopupChooserBuilder(keys)
+            .setTitle("Move ${item.id} to")
+            .setItemChosenCallback { to -> moveTo(item, to) }
+            .createPopup()
+            .showInFocusCenter()
+    }
+
+    /** Asks to confirm, then moves [item] to project [to] under a modal progress and says its new id in a balloon. */
+    private fun moveTo(item: TodoItem, to: String) {
+        val links = if (own) TodoService.getInstance(project).links() else view.links()
+        val parts = links.children(item.id)
+        val text = buildString {
+            append("Move ${item.id} to $to? It gets a new id there.")
+            if (parts.isNotEmpty()) append(" Its ${parts.size} ${if (parts.size == 1) "part moves" else "parts move"} with it.")
+            if (item.anchors.isNotEmpty() || parts.any { it.anchors.isNotEmpty() }) append(" Its places in the code are dropped: the target project has its own checkout.")
+        }
+        val ok = if (parts.isEmpty()) "Move" else "Move All"
+        if (Messages.showOkCancelDialog(project, text, "Move to Project", ok, "Cancel", null) != Messages.OK) return
+        val moved = try {
+            ProgressManager.getInstance().runProcessWithProgressSynchronously(
+                ThrowableComputable<String, StoreException> { view.move(item.id, to, parts.isNotEmpty()) },
+                "Moving ${item.id} to $to", false, project,
+            )
+        } catch (e: StoreException) {
+            Messages.showErrorDialog(project, e.message, "Not My TODO")
+            return
+        }
+        NotificationGroupManager.getInstance().getNotificationGroup("Not My TODO")
+            .createNotification("Moved ${item.id} to $to as $moved.", NotificationType.INFORMATION).notify(project)
+    }
+
     private val toolbar = ActionManager.getInstance().createActionToolbar(
         "NotMyTodoDetail",
         DefaultActionGroup(
@@ -379,6 +447,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             Separator.getInstance(),
             DecisionAction(),
             EditAction(),
+            moveAction,
             IconAction("Save", AllIcons.Actions.MenuSaveall, { tracked && editing }) { save() },
         ),
         true,

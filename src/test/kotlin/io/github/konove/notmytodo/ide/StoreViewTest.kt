@@ -202,4 +202,31 @@ class StoreViewTest : BasePlatformTestCase() {
         assertEquals(listOf("infra"), view.sharing("ops", shared))
         assertTrue(view.sharing("web", own).isEmpty())
     }
+
+    fun `test an item moved to another project leaves this one and is found there under its new id`() {
+        stores.dir("beta").writeRecord(ProjectRecord("beta"))
+        stores.items("beta").create(Draft("already there"))
+        val item = view.create(view.home, Draft("to move"))
+        val moved = view.move(item.id, "beta", withParts = false)
+        assertEquals("beta/T-2", moved)
+        assertNull(TodoService.getInstance(project).store.find(item.id))
+        assertEquals("to move", view.find(moved)!!.title)
+    }
+
+    fun `test an item of another project moves into this one under a bare id`() {
+        stores.dir("beta").writeRecord(ProjectRecord("beta"))
+        stores.items("beta").create(Draft("from beta"))
+        view.load()
+        val moved = view.move("beta/T-1", view.home, withParts = false)
+        assertEquals("from beta", TodoService.getInstance(project).store.find(moved)!!.title)
+    }
+
+    fun `test an item with parts moves only with them`() {
+        stores.dir("beta").writeRecord(ProjectRecord("beta"))
+        val parent = view.create(view.home, Draft("whole"))
+        view.create(view.home, Draft("part", parent = parent.id))
+        assertThrows(StoreException::class.java) { view.move(parent.id, "beta", withParts = false) }
+        view.move(parent.id, "beta", withParts = true)
+        assertTrue(TodoService.getInstance(project).store.items.isEmpty())
+    }
 }

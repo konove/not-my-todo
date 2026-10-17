@@ -854,4 +854,16 @@ class UiSmokeTest : BasePlatformTestCase() {
             Disposer.dispose(dialog.disposable)
         }
     }
+
+    fun `test Move to Project is offered for an item and refused for a part`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("whole"))
+        val part = store.create(Draft("part", parent = item.id))
+        val pane = DetailPane(project)
+        pane.show(store.find(item.id))
+        assertTrue(pane.moveEnabled)
+        pane.show(store.find(part.id))
+        assertFalse(pane.moveEnabled)
+        assertEquals("Move the item it is a part of", pane.moveText)
+    }
 }
