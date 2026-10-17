@@ -244,13 +244,14 @@ class StoreView(private val project: Project) {
      */
     fun move(viewId: String, to: String, withParts: Boolean): String {
         val t = target(viewId) ?: throw StoreException("there is no item with id $viewId")
-        if (to == home) service.ensureProject() else if (to == Store.INBOX) stores.inbox()
-        val moved = stores.move(t.key, t.id, to, withParts)
+        // Making this project may take another key than the one shown, when another repository took it meanwhile.
+        val dest = if (to == home) service.ensureProject().key else { if (to == Store.INBOX) stores.inbox(); to }
+        val moved = stores.move(t.key, t.id, dest, withParts)
         val id = moved.ids.getValue(t.id)
-        // The store wrote this project's files behind the service's back.
-        if (t.home || to == home) service.store.reload()
+        // The store rewrites links in every project, and wrote this one's files behind the service's back.
+        service.store.reload()
         load()
-        return if (to == home) id else "$to/$id"
+        return if (dest == home) id else "$dest/$id"
     }
 
     /** How the items of every project refer to each other, by view id. */

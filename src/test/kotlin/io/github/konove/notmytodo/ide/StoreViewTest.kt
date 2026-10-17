@@ -219,6 +219,7 @@ class StoreViewTest : BasePlatformTestCase() {
         view.load()
         val moved = view.move("beta/T-1", view.home, withParts = false)
         assertEquals("from beta", TodoService.getInstance(project).store.find(moved)!!.title)
+        assertNull(view.find("beta/T-1"))
     }
 
     fun `test an item with parts moves only with them`() {
@@ -226,7 +227,14 @@ class StoreViewTest : BasePlatformTestCase() {
         val parent = view.create(view.home, Draft("whole"))
         view.create(view.home, Draft("part", parent = parent.id))
         assertThrows(StoreException::class.java) { view.move(parent.id, "beta", withParts = false) }
+        assertEquals(2, TodoService.getInstance(project).store.items.size)
         view.move(parent.id, "beta", withParts = true)
         assertTrue(TodoService.getInstance(project).store.items.isEmpty())
+    }
+
+    fun `test an item moves to Inbox before Inbox has a record`() {
+        val item = view.create(view.home, Draft("note"))
+        assertEquals("inbox/T-1", view.move(item.id, Store.INBOX, withParts = false))
+        assertEquals("note", view.find("inbox/T-1")!!.title)
     }
 }

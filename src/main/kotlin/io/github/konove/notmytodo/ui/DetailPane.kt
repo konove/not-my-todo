@@ -62,6 +62,7 @@ import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
 import io.github.konove.notmytodo.model.TodoItem
+import io.github.konove.notmytodo.store.Store
 import io.github.konove.notmytodo.store.StoreException
 import java.awt.BorderLayout
 import java.awt.Color
@@ -390,7 +391,8 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private fun move() {
         val item = current ?: return
         val from = key
-        val keys = view.keys().filter { it != from }
+        // Inbox is offered before it has a record: moving there makes it.
+        val keys = (listOf(view.home, Store.INBOX) + view.keys()).distinct().filter { it != from }
         if (keys.isEmpty()) {
             Messages.showInfoMessage(project, "There is no other project to move ${item.id} to.", "Not My TODO")
             return
@@ -405,7 +407,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
 
     /** Asks to confirm, then moves [item] to project [to] under a modal progress and says its new id in a balloon. */
     private fun moveTo(item: TodoItem, to: String) {
-        val links = if (own) TodoService.getInstance(project).links() else view.links()
+        val links = if (!ViewIds.isElsewhere(item.id)) TodoService.getInstance(project).links() else view.links()
         val parts = links.children(item.id)
         val text = buildString {
             append("Move ${item.id} to $to? It gets a new id there.")
