@@ -258,10 +258,12 @@ object ItemActions {
     fun fixAll(project: Project, shown: List<TodoItem>) {
         val service = TodoService.getInstance(project)
         project.service<AnchorTracker>().flushAll()
+        fun toDo(it: TodoItem) = it.status == Status.OPEN || it.status == Status.IN_PROGRESS
         // Fix All sends one prompt to one session, in this project: another project's items are sent each from its own checkout.
-        val elsewhere = shown.count { ViewIds.isElsewhere(it.id) && !it.isClosed }
+        // Those left out for it are those that would have been sent.
+        val elsewhere = shown.count { ViewIds.isElsewhere(it.id) && toDo(it) && !it.needsDecision }
         val candidates = shown.filterNot { ViewIds.isElsewhere(it.id) }.mapNotNull { if (CodeTodos.isCode(it)) it else service.store.find(it.id) }
-            .filter { CodeTodos.isCode(it) || it.status == Status.OPEN || it.status == Status.IN_PROGRESS }
+            .filter { CodeTodos.isCode(it) || toDo(it) }
         // What waits for my decision is not an agent's to fix.
         val items = candidates.filterNot { it.needsDecision }
         val held = candidates.size - items.size

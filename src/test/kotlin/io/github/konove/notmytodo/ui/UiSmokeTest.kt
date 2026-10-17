@@ -8,6 +8,8 @@ import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -604,6 +606,26 @@ class UiSmokeTest : BasePlatformTestCase() {
             "Send 2 items (T-1, T-2) to a terminal and mark the tracked ones in progress? 1 that need your decision and 3 of other projects are left out.",
             ItemActions.fixAllQuestion(2, "T-1, T-2", "a terminal", true, 1, 3),
         )
+    }
+
+    fun `test Fix All leaves out only the items of other projects it would have sent`() {
+        val stores = StoreService.getInstance().store
+        TodoService.getInstance(project).store.create(Draft("mine"))
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        val infra = stores.items("infra")
+        infra.create(Draft("open"))
+        infra.update(infra.create(Draft("fixed")).id) { it.copy(status = Status.FIXED) }
+        infra.create(Draft("to decide", tags = listOf(io.github.konove.notmytodo.model.Tags.NEEDS_DECISION)))
+        val view = StoreView.getInstance(project)
+        view.load()
+        var asked: String? = null
+        val before = TestDialogManager.setTestDialog { asked = it; Messages.NO }
+        try {
+            ItemActions.fixAll(project, view.items(ProjectScope.ALL))
+        } finally {
+            TestDialogManager.setTestDialog(before)
+        }
+        assertTrue(asked, asked!!.endsWith("? 1 of other projects are left out."))
     }
 
     fun `test an item of a project with no checkout can be edited and closed, and its Fix is disabled`() {
