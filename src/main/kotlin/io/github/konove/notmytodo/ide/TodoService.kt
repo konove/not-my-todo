@@ -163,6 +163,31 @@ class TodoService(private val project: Project) : Disposable {
 
     private fun projectsPath(): String = StoreService.getInstance().store.root.resolve("projects").toString().replace('\\', '/') + "/"
 
+    /**
+     * Imports [file], whose ids the project has for other items, with new ids after its last, and opens the project again.
+     * Waits for the store's lock: not for the event thread.
+     */
+    fun importWithNewIds(file: Path) {
+        val held = project.service<HeldStatuses>()
+        val legacy = ProjectOpener(StoreService.getInstance().store).importWithNewIds(base, file, held.held())
+        held.clear()
+        reopen()
+        notices.tell(store.key, base, legacy) {}
+    }
+
+    /** [importWithNewIds] on a pooled thread, its failure said in a balloon. */
+    private fun importLater(file: Path) {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                importWithNewIds(file)
+            } catch (e: StoreException) {
+                NotificationGroupManager.getInstance().getNotificationGroup("Not My TODO")
+                    .createNotification("The items were not moved into the store", e.message ?: "", NotificationType.WARNING)
+                    .notify(project)
+            }
+        }
+    }
+
     /** Finds the store project again: after it was renamed, or when it could not be opened before. */
     fun reopen() {
         synchronized(this) {
@@ -229,7 +254,7 @@ class TodoService(private val project: Project) : Disposable {
             available = true
             opened.legacy?.let {
                 if (it is ProjectOpener.Legacy.Imported) held.clear()
-                notices.tell(opened.items.key, base, it)
+                notices.tell(opened.items.key, base, it) { importLater(it.file) }
             }
             opened.items
         } catch (e: StoreException) {
