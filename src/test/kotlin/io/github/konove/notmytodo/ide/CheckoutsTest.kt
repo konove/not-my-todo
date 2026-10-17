@@ -1,8 +1,10 @@
 package io.github.konove.notmytodo.ide
 
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.TestStore
 import io.github.konove.notmytodo.anchor.AnchorResolver
@@ -36,6 +38,25 @@ class CheckoutsTest : BasePlatformTestCase() {
         stores.dir(key).writeRecord(ProjectRecord(key, checkouts = listOfNotNull(checkout?.toString())))
         stores.items(key).create(Draft("theirs"))
         StoreView.getInstance(project).load()
+    }
+
+    fun `test the window of a checkout is found by its repository root, not only by its folder`() {
+        val root = TodoService.getInstance(project).root
+        assertSame(project, Checkouts.openIn(root, listOf(project)))
+        assertNull(Checkouts.openIn(root.resolve("elsewhere"), listOf(project)))
+    }
+
+    fun `test the unsaved document of another checkout's file is saved before its prompt is read`() {
+        val dir = Files.createTempDirectory("nmt-save")
+        val file = Files.writeString(dir.resolve("a.txt"), "old\n")
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)!!
+        val document = FileDocumentManager.getInstance().getDocument(vf)!!
+        WriteCommandAction.runWriteCommandAction(project) { document.setText("new\n") }
+        ItemActions.saveIn(dir, listOf("a.txt"))
+        // On a cold IDE the write to the disk was seen to trail the save by a moment.
+        val end = System.currentTimeMillis() + 5000
+        while (Files.readString(file) != "new\n" && System.currentTimeMillis() < end) Thread.sleep(20)
+        assertEquals("new\n", Files.readString(file))
     }
 
     fun `test an item with a checkout here asks for the window of its checkout`() {

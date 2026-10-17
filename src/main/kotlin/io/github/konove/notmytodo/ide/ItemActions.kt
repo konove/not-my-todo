@@ -8,8 +8,11 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowManager
 import io.github.konove.notmytodo.channel.ChannelServer
 import io.github.konove.notmytodo.handoff.ClaudeLauncher
@@ -27,6 +30,7 @@ import io.github.konove.notmytodo.store.StoreException
 import io.github.konove.notmytodo.ui.TodoPanel
 import java.awt.datatransfer.StringSelection
 import java.nio.file.InvalidPathException
+import java.nio.file.Path
 
 /** Item actions shared by the panel and the gutter popup. Call on the event thread. */
 object ItemActions {
@@ -107,13 +111,21 @@ object ItemActions {
     private fun fixElsewhere(project: Project, viewId: String) {
         val view = StoreView.getInstance(project)
         val key = ViewIds.split(viewId, view.home)?.project ?: return
-        val checkout = view.checkout(key)
+        // The checkout and who shares it come from the store, which the event thread does not read.
+        val found = ProgressManager.getInstance().runProcessWithProgressSynchronously(
+            ThrowableComputable<Pair<Path?, List<String>>, RuntimeException> {
+                val checkout = view.checkout(key)
+                checkout to (checkout?.let { view.sharing(key, it) } ?: emptyList())
+            },
+            "Looking for the checkout of $key", false, project,
+        )
+        val checkout = found.first
         if (checkout == null) {
             Messages.showInfoMessage(project, "$key has no checkout on this machine, so there is no folder to start Claude Code in.", "Not My TODO")
             return
         }
         // The prompt names the item by its bare id, which the session's server looks up in the project it takes the folder for.
-        val sharing = view.sharing(key, checkout)
+        val sharing = found.second
         if (sharing.isNotEmpty()) {
             val also = sharing.joinToString(" and ")
             Messages.showInfoMessage(
@@ -128,9 +140,22 @@ object ItemActions {
             Messages.showInfoMessage(project, "Starting Claude Code in $checkout needs the Terminal plugin.", "Not My TODO")
             return
         }
-        val prompt = elsewherePrompt(project, viewId) ?: return
+        // The prompt is read from disk: what the editors show of the item's files is saved first.
+        view.find(viewId)?.let { item -> saveIn(checkout, item.anchors.map { it.path }.distinct()) }
+        val prompt = ProgressManager.getInstance().runProcessWithProgressSynchronously(
+            ThrowableComputable<String?, RuntimeException> { elsewherePrompt(project, viewId) },
+            "Reading the code of $viewId", false, project,
+        ) ?: return
         ClaudeLauncher.launch(project, prompt, checkout.toString(), channel = false)
         setStatus(project, viewId, Status.IN_PROGRESS)
+    }
+
+    /** Saves what the editors show of [paths], files of the checkout at [checkout]. Documents belong to the whole IDE, so no window of it is needed. */
+    internal fun saveIn(checkout: Path, paths: Collection<String>) {
+        val documents = FileDocumentManager.getInstance()
+        paths.mapNotNull { runCatching { checkout.resolve(it) }.getOrNull() }
+            .mapNotNull { LocalFileSystem.getInstance().findFileByNioFile(it) }
+            .mapNotNull(documents::getCachedDocument).filter(documents::isDocumentUnsaved).forEach(documents::saveDocument)
     }
 
     /**

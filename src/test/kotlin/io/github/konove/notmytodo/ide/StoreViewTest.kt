@@ -38,6 +38,21 @@ class StoreViewTest : BasePlatformTestCase() {
         return done()
     }
 
+    fun `test sharing reads the store, not the snapshot`() {
+        val folder = Files.createTempDirectory("nmt-shared")
+        stores.dir("one").writeRecord(ProjectRecord("one", checkouts = listOf(folder.toString())))
+        // Not loaded since: the snapshot does not have "two".
+        stores.dir("two").writeRecord(ProjectRecord("two", checkouts = listOf(folder.toString())))
+        assertEquals(listOf("two"), view.sharing("one", folder))
+    }
+
+    fun `test a read a write overtook asks for another`() {
+        val ticket = view.startRead()
+        view.create(Store.INBOX, Draft("written meanwhile"))
+        assertFalse(view.offer(ticket, StoreView.Snapshot(emptyList(), emptyMap())))
+        assertTrue(view.readAgainAsked)
+    }
+
     fun `test the same id in two projects names two items`() {
         val home = TodoService.getInstance(project).store
         home.create(Draft("mine"))

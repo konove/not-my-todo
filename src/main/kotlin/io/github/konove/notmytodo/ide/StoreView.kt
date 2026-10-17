@@ -63,7 +63,7 @@ class StoreView(private val project: Project) {
 
     /**
      * Reads every other project again, and tells the listeners. A store that cannot be listed leaves what was read
-     * before, and so does a project whose items cannot be read. A read that a later read or a write overtook is dropped.
+     * before, and so does a project whose items cannot be read. A read that a later read or a write overtook is dropped, and another is asked for.
      */
     fun load() {
         val ticket = startRead()
@@ -89,11 +89,27 @@ class StoreView(private val project: Project) {
     internal fun startRead(): Long = synchronized(lock) { ++issued }
 
     /** Takes [read], begun as [ticket], unless a later read or a write has put its own in the meantime. */
-    internal fun offer(ticket: Long, read: Snapshot): Boolean = synchronized(lock) {
-        if (ticket <= assigned) return false
-        assigned = ticket
-        snapshot = read
-        true
+    internal fun offer(ticket: Long, read: Snapshot): Boolean {
+        val taken = synchronized(lock) {
+            if (ticket <= assigned) false else {
+                assigned = ticket
+                snapshot = read
+                true
+            }
+        }
+        // A write patched one project in the meantime; what this read saw of the others is read again.
+        if (!taken) readAgain()
+        return taken
+    }
+
+    /** Set once a dropped read asked for another; for the tests. */
+    @Volatile
+    internal var readAgainAsked = false
+        private set
+
+    private fun readAgain() {
+        readAgainAsked = true
+        loadLater()
     }
 
     private fun read(): Snapshot {
@@ -225,12 +241,12 @@ class StoreView(private val project: Project) {
 
     /**
      * The projects other than [key] whose records list [folder] as a checkout too. A Claude Code started there takes one
-     * of them for its own, which may not be [key]. Reads only the snapshot.
+     * of them for its own, which may not be [key]. Reads the store: not for the event thread.
      */
     fun sharing(key: String, folder: Path): List<String> {
         fun same(path: Path) = path.toAbsolutePath().normalize()
         val wanted = same(folder)
-        return snapshot.records.filter { r ->
+        return stores.projects().filter { r ->
             r.key != key && r.checkouts.any { c -> runCatching { same(Path.of(c)) }.getOrNull() == wanted }
         }.map { it.key }.sorted()
     }

@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ide
 
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
 import java.nio.file.Path
 
@@ -10,12 +11,19 @@ import java.nio.file.Path
  * it is shown in that project's window, opened when it is not, after asking.
  */
 object Checkouts {
+    /** The open IDE project whose repository root is [checkout]: a window opened at a subfolder of the checkout counts. */
+    fun openIn(checkout: Path, open: List<Project> = ProjectManager.getInstance().openProjects.toList()): Project? {
+        val wanted = checkout.toAbsolutePath().normalize()
+        return open.firstOrNull { !it.isDisposed && TodoService.getInstance(it).root.toAbsolutePath().normalize() == wanted }
+    }
+
     /**
      * The window [checkout] is open in, brought to the front, or a new one after asking; null when
      * the user says no. [ref] is the item's id as it is asked about. Replaced in tests, which cannot open windows.
      */
     internal var window: (Project, Path, String) -> Project? = { project, checkout, ref ->
-        ProjectUtil.findAndFocusExistingProjectForPath(checkout) ?: run {
+        openIn(checkout)?.also { ProjectUtil.focusProjectWindow(it, true) }
+            ?: ProjectUtil.findAndFocusExistingProjectForPath(checkout) ?: run {
             val answer = Messages.showYesNoDialog(
                 project, "$ref is in $checkout. Open it in a new window and go to its code?", "Not My TODO", null,
             )
