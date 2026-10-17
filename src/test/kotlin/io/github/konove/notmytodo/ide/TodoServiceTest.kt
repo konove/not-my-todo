@@ -67,6 +67,14 @@ class TodoServiceTest : BasePlatformTestCase() {
         assertTrue(service.store.items.isEmpty())
     }
 
+    fun `test renaming a pending project makes it first, then renames it`() {
+        TestStore.reset(project, made = false)
+        service.rename("renamed")
+        assertFalse(service.pending)
+        assertEquals("renamed", service.store.key)
+        assertNotNull(StoreService.getInstance().store.project("renamed"))
+    }
+
     fun `test while pending a change anywhere in the store is looked at`() {
         TestStore.reset(project, made = false)
         val projects = StoreService.getInstance().store.root.resolve("projects").toString().replace('\\', '/')

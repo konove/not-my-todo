@@ -12,8 +12,10 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
@@ -28,6 +30,7 @@ import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.settings.TodoProjectSettings
 import io.github.konove.notmytodo.store.ItemStore
 import io.github.konove.notmytodo.store.ProjectDir
+import io.github.konove.notmytodo.store.Resolution
 import io.github.konove.notmytodo.store.StoreException
 import java.io.IOException
 import java.io.UncheckedIOException
@@ -72,7 +75,7 @@ class TodoService(private val project: Project) : Disposable {
 
     /** The folder's resolution while it has no store project yet: the first write makes it. */
     @Volatile
-    private var resolution: io.github.konove.notmytodo.store.Resolution? = null
+    private var resolution: Resolution? = null
 
     /** True while the folder has no store project: [store] is empty then, and the first write makes the project. */
     val pending: Boolean get() = resolution != null
@@ -177,18 +180,27 @@ class TodoService(private val project: Project) : Disposable {
      * when the key cannot be used.
      */
     fun rename(key: String) {
-        StoreService.getInstance().store.rename(store.key, key)
+        // A rename is a write: while pending, the project is made first, and the key it got is the one renamed.
+        StoreService.getInstance().store.rename(ensureProject().key, key)
         reopen()
     }
 
     /**
      * The items to write to: while [pending], the project is made first and opened. Waits for the store's lock.
+     * Making it reads every project in the store, so on the event thread it runs under a short modal progress.
      * Throws [StoreException] when it cannot be made.
      */
     fun ensureProject(): ItemStore {
         val wanted = resolution ?: return store
-        StoreService.getInstance().store.ensure(wanted)
-        reopen()
+        val make = ThrowableComputable<Unit, StoreException> {
+            StoreService.getInstance().store.ensure(wanted)
+            reopen()
+        }
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            ProgressManager.getInstance().runProcessWithProgressSynchronously(make, "Making the store project of this folder", false, project)
+        } else {
+            make.compute()
+        }
         return store
     }
 
@@ -199,8 +211,8 @@ class TodoService(private val project: Project) : Disposable {
     fun links(): Links = Links(store.items) { StoreView.getInstance(project).find(it) }
 
     /**
-     * The store project of [base], made when there is none, with the items of the items file 0.2
-     * kept there imported into it. It may wait for the store's lock, up to five seconds, when
+     * The store project of [base], with the items of the items file 0.2
+     * kept there imported into it. A folder with none is left pending: the first write makes it. It may wait for the store's lock, up to five seconds, when
      * another writer holds it.
      */
     private fun open(): ItemStore {
