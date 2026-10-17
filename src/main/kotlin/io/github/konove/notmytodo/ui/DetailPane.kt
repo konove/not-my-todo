@@ -318,6 +318,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         font = EditorUtil.getEditorFont()
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
     }
+    internal val codeText: String get() = codeArea.text
     private var shownCode: Triple<String, Int, Int>? = null
     private var shownTint: Color? = null
 

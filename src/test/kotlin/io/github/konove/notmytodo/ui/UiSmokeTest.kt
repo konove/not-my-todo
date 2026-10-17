@@ -644,6 +644,8 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals("Fix with Claude", pane.fixTooltip)
         pane.show(note)
         assertTrue(pane.codeBox.isVisible)
+        // There is no file to read: the code is that the anchor was saved with.
+        assertEquals("2  two", pane.codeText)
         pane.titleField.text = "a better note"
         pane.save()
         assertEquals("a better note", StoreService.getInstance().store.items("inbox").find("T-1")!!.title)
@@ -666,6 +668,23 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals(listOf("${view.home}/${mine.id}"), stores.items("infra").find("T-1")!!.blockedBy)
         assertEquals(listOf(mine.id), view.find("infra/T-1")!!.blockedBy)
         assertEquals("Blocked by ${mine.id}", pane.viewLinks.getCharSequence(false).toString())
+    }
+
+    fun `test saving another project's item keeps its link to this project's item as that project stores it`() {
+        val stores = StoreService.getInstance().store
+        val view = StoreView.getInstance(project)
+        TodoService.getInstance(project).store.create(Draft("mine"))
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs", blockedBy = listOf("${view.home}/T-1")))
+        view.load()
+        val pane = DetailPane(project)
+        pane.show(view.find("infra/T-1"))
+        assertEquals("T-1", pane.linkFields[0].text)
+        pane.titleField.text = "theirs, renamed"
+        pane.save()
+        val saved = stores.items("infra").find("T-1")!!
+        assertEquals("theirs, renamed", saved.title)
+        assertEquals(listOf("${view.home}/T-1"), saved.blockedBy)
     }
 
     fun `test a link to another project's item is typed with its qualified id`() {
