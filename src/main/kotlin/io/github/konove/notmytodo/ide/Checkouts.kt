@@ -30,6 +30,9 @@ object Checkouts {
         val checkout = view.checkout(ref.project!!) ?: return
         val there = window(project, checkout, viewId) ?: return
         // That window has its own store project, the one of the checkout, where the item has its bare id.
-        TodoService.getInstance(there).store.find(ref.id)?.let { ItemActions.navigate(there, it) }
+        // A checkout may be recorded under two projects; only the window of this one has its item.
+        val store = TodoService.getInstance(there).store
+        if (store.key != ref.project) return
+        store.find(ref.id)?.let { ItemActions.navigate(there, it) }
     }
 }

@@ -578,4 +578,16 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertEquals(Status.IN_PROGRESS, stores.items("infra").find("T-1")!!.status)
         assertEquals(Status.OPEN, TodoService.getInstance(project).store.find("T-1")!!.status)
     }
+
+    fun `test Fix All asks a question and says what it leaves out after it`() {
+        assertEquals("Send 2 items (T-1, T-2) to the clipboard?", ItemActions.fixAllQuestion(2, "T-1, T-2", "the clipboard", false, 0, 0))
+        assertEquals(
+            "Send 2 items (T-1, T-2) to the clipboard? 2 that need your decision are left out.",
+            ItemActions.fixAllQuestion(2, "T-1, T-2", "the clipboard", false, 2, 0),
+        )
+        assertEquals(
+            "Send 2 items (T-1, T-2) to a terminal and mark the tracked ones in progress? 1 that need your decision and 3 of other projects are left out.",
+            ItemActions.fixAllQuestion(2, "T-1, T-2", "a terminal", true, 1, 3),
+        )
+    }
 }

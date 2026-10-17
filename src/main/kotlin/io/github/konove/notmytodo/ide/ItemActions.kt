@@ -231,7 +231,7 @@ object ItemActions {
         val service = TodoService.getInstance(project)
         project.service<AnchorTracker>().flushAll()
         // Fix All sends one prompt to one session, in this project: another project's items are sent each from its own checkout.
-        val elsewhere = shown.count { ViewIds.isElsewhere(it.id) }
+        val elsewhere = shown.count { ViewIds.isElsewhere(it.id) && !it.isClosed }
         val candidates = shown.filterNot { ViewIds.isElsewhere(it.id) }.mapNotNull { if (CodeTodos.isCode(it)) it else service.store.find(it.id) }
             .filter { CodeTodos.isCode(it) || it.status == Status.OPEN || it.status == Status.IN_PROGRESS }
         // What waits for my decision is not an agent's to fix.
@@ -263,18 +263,24 @@ object ItemActions {
         val tracked = items.filterNot(CodeTodos::isCode)
         val names = items.take(8).joinToString(", ") { it.id } + if (items.size > 8) ", ..." else ""
         val copied = target == FixTarget.CLIPBOARD
-        val left = listOfNotNull(
-            "$held that need your decision".takeIf { held > 0 },
-            "$elsewhere of other projects".takeIf { elsewhere > 0 },
-        )
-        val after = (if (tracked.isEmpty() || copied) "" else " and mark the tracked ones in progress") +
-            if (left.isEmpty()) "?" else ". ${left.joinToString(" and ")} are left out."
-        val answer = Messages.showYesNoDialog(project, "Send ${items.size} items ($names) to $where$after", "Fix with Claude", null)
+        val marks = tracked.isNotEmpty() && !copied
+        val answer = Messages.showYesNoDialog(project, fixAllQuestion(items.size, names, where, marks, held, elsewhere), "Fix with Claude", null)
         if (answer != Messages.YES) return
         saveAnchored(project, items)
         val links = TodoService.getInstance(project).links()
         val prompt = PromptBuilder.buildAll(items.map(links::shown), fileTexts(project, items), promptOptions(project).copy(claim = copied))
         deliver(project, target, prompt, items.map { it.id })
         if (!copied) tracked.forEach { setStatus(project, it.id, Status.IN_PROGRESS) }
+    }
+
+    /** What Fix All asks: a question, with what is left out said after it. */
+    internal fun fixAllQuestion(count: Int, names: String, where: String, marks: Boolean, held: Int, elsewhere: Int): String {
+        val left = listOfNotNull(
+            "$held that need your decision".takeIf { held > 0 },
+            "$elsewhere of other projects".takeIf { elsewhere > 0 },
+        )
+        val after = (if (marks) " and mark the tracked ones in progress" else "") +
+            if (left.isEmpty()) "?" else "? ${left.joinToString(" and ")} are left out."
+        return "Send $count items ($names) to $where$after"
     }
 }

@@ -44,6 +44,10 @@ class CheckoutsTest : BasePlatformTestCase() {
 
     fun `test an item with no checkout here opens nothing`() {
         other("infra", null)
+        val stores = StoreService.getInstance().store
+        stores.inbox()
+        stores.items(io.github.konove.notmytodo.store.Store.INBOX).create(Draft("loose"))
+        StoreView.getInstance(project).load()
         Checkouts.goTo(project, "infra/T-1")
         Checkouts.goTo(project, "inbox/T-1")
         assertTrue(asked.isEmpty())
