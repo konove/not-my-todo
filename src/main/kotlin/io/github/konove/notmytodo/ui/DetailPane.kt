@@ -226,6 +226,18 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     private val view get() = StoreView.getInstance(project)
     private var current: TodoItem? = null
 
+    /** What was read of another project's checkout for the item shown: the checkout, and the text of the shown anchor's file. */
+    internal data class Away(val checkout: java.nio.file.Path?, val text: String?)
+
+    /** Reads another project's checkout and one file of it, on a pooled thread. Replaced in tests. */
+    internal var awayRead: (String, String?) -> Away = { key, path ->
+        Away(view.checkout(key), path?.let { view.readText(key, it) })
+    }
+
+    /** The read for [awayFor], once done; [awayFor] is the item and anchor it was asked for. */
+    private var away: Away? = null
+    private var awayFor: Pair<TodoItem, Int>? = null
+
     /** Which of the item's anchors the code box shows, and Jump, Re-attach and Remove act on. */
     private var anchorIndex = 0
     private val shownAnchor: Anchor? get() = current?.anchors?.getOrNull(anchorIndex)
@@ -548,13 +560,40 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         whereLabel.toolTipText = anchor?.path
         anchorSteps.isVisible = item.anchors.size > 1
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
-        val here = code || own || view.checkout(key) != null
+        // Another project's checkout is looked at on a pooled thread; the pane is filled in again when it has been.
+        // A read already asked for this item and anchor is waited for, not asked again: the pane is shown often.
+        val asked = !code && !own && awayFor?.let { it.first === item && it.second == anchorIndex } == true
+        if (!code && !own && !asked) readAway(item, anchorIndex, anchor?.takeUnless { it.lost }?.path)
+        val read = if (asked) away else null
+        val here = code || own || read?.checkout != null
         fixButton.isEnabled = here
-        fixButton.toolTipText = if (here) fixButton.caption else "$key has no checkout on this machine, so there is no folder to start Claude Code in"
+        fixButton.toolTipText = when {
+            here -> fixButton.caption
+            read == null -> "Looking for the checkout of $key"
+            else -> "$key has no checkout on this machine, so there is no folder to start Claude Code in"
+        }
         codeBox.isVisible = anchor != null
-        if (anchor != null) showCode(anchor, PriorityColors.tint(priority))
+        if (anchor != null) showCode(anchor, PriorityColors.tint(priority), if (own || code) null else read?.text, own || code)
         deleteToolbar.updateActionsAsync()
         showMode()
+    }
+
+    /** Asks for the checkout of [key] and the file at [path] on a pooled thread, and shows [item] again when they are read. */
+    private fun readAway(item: TodoItem, index: Int, path: String?) {
+        val asked = item to index
+        awayFor = asked
+        away = null
+        val key = this.key
+        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+            val got = awayRead(key, path)
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater({
+                // The user may have chosen another item in the meantime.
+                if (awayFor === asked && current === item) {
+                    away = got
+                    show(item)
+                }
+            }, project.disposed)
+        }
     }
 
     /** Fills [viewLinks]: what the item waits for, duplicates and is a part of, and the parts it has. A closed item's id is struck out. */
@@ -597,10 +636,11 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     /**
      * Shows the anchored lines with [CONTEXT_LINES] of the file either side, numbered, and the
      * anchored ones tinted. A lost anchor shows only the text it was saved with. An anchor on a
-     * whole file shows how the file starts, with nothing tinted.
+     * whole file shows how the file starts, with nothing tinted. This project's file is read here, from the
+     * IDE's documents; another project's arrives as [awayText], read off the event thread.
      */
-    private fun showCode(anchor: Anchor, tint: Color) {
-        val fileLines = if (anchor.lost) null else view.readText(key, anchor.path)?.lines()
+    private fun showCode(anchor: Anchor, tint: Color, awayText: String?, local: Boolean) {
+        val fileLines = if (anchor.lost) null else (if (local) view.readText(key, anchor.path) else awayText)?.lines()
         val first: Int
         val shownLines: List<String>
         if (anchor.isFile) {

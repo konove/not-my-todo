@@ -628,6 +628,43 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(asked, asked!!.endsWith("? 1 of other projects are left out."))
     }
 
+    fun `test the detail pane does not read another checkout on the event thread, and fills the code in when read`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs", anchors = listOf(AnchorResolver.capture("src/a.kt", text, 2, 2))))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val reads = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val pane = DetailPane(project)
+        pane.awayRead = { key, path ->
+            reads += "$key:$path on ${if (com.intellij.openapi.application.ApplicationManager.getApplication().isDispatchThread) "edt" else "pool"}"
+            DetailPane.Away(java.nio.file.Path.of("/co"), "line one\nline two\n")
+        }
+        pane.show(view.find("infra/T-1"))
+        PlatformTestUtil.waitWhileBusy { reads.isEmpty() }
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals(listOf("infra:src/a.kt on pool"), reads.toList())
+        assertTrue(pane.fixEnabled)
+        assertTrue(pane.codeText, pane.codeText.contains("line one"))
+    }
+
+    fun `test a read that ends after another item was chosen leaves the pane alone`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs", anchors = listOf(AnchorResolver.capture("src/a.kt", text, 2, 2))))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val mine = TodoService.getInstance(project).store.create(Draft("mine"))
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val pane = DetailPane(project)
+        pane.awayRead = { _, _ -> gate.await(); DetailPane.Away(java.nio.file.Path.of("/co"), "stale\nstale\nstale\n") }
+        pane.show(view.find("infra/T-1"))
+        pane.show(mine)
+        gate.countDown()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertFalse(pane.codeText, pane.codeText.contains("stale"))
+    }
+
     fun `test an item of a project with no checkout can be edited and closed, and its Fix is disabled`() {
         val view = StoreView.getInstance(project)
         val note = view.create(io.github.konove.notmytodo.store.Store.INBOX, Draft("a note", anchors = listOf(AnchorResolver.capture("x.txt", text, 2, 2))))
@@ -637,6 +674,10 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(pane.fixEnabled)
         assertEquals("Fix with Claude", pane.fixTooltip)
         pane.show(note)
+        // The checkout is looked for off the event thread; Fix waits until it is known there is none.
+        assertFalse(pane.fixEnabled)
+        PlatformTestUtil.waitWhileBusy { !pane.fixTooltip!!.contains("no checkout") }
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertFalse(pane.fixEnabled)
         assertTrue(pane.fixTooltip!!, pane.fixTooltip!!.contains("no checkout"))
         pane.show(mine)
