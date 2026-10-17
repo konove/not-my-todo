@@ -220,6 +220,8 @@ class TodoConfigurable(
                 throw ConfigurationException(e.message)
             }
             this.key = service.store.key
+            // A rename whose project could not be opened again leaves the stand-in's key, which must not be renamed to.
+            renames = service.available
         }
         TodoSettings.getInstance().update(values)
     }

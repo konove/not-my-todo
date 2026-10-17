@@ -129,6 +129,19 @@ class ProjectOpenerTest {
     }
 
     @Test
+    fun `a second items file at the home folder is not imported into Inbox beside the first`() {
+        // Only the home folder itself resolves to Inbox: a folder in it that is no repository is a project of its own.
+        val home = Files.createDirectories(tmp.resolve("home"))
+        val first = itemsFile(home)
+        assertEquals(ProjectOpener.Legacy.Imported(first, 2), opener.open(home, first).legacy)
+        val other = home.resolve(".todos/other.json")
+        Files.writeString(other, json.replace("five", "FIVE"))
+        val opened = opener.open(home, other)
+        assertEquals(ProjectOpener.Legacy.Elsewhere(other, first.toString()), opened.legacy)
+        assertEquals(listOf("two", "five"), opened.items.items.map { it.title })
+    }
+
+    @Test
     fun `rebase leaves anchors alone when the folders are the same or unrelated`() {
         val item = io.github.konove.notmytodo.model.TodoItem(id = "T-1", title = "t")
         assertEquals(item, ProjectOpener.rebase(tmp, tmp)(item))

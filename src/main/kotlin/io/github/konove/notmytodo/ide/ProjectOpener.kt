@@ -62,7 +62,8 @@ class ProjectOpener(private val store: Store) {
      */
     private fun importing(resolution: Resolution, base: Path, root: Path, file: Path, held: Map<String, Pair<Status, Status>>): Opened {
         val path = file.toAbsolutePath().normalize().toString()
-        val before = resolution.record?.importedFrom
+        // A folder of no repository goes into Inbox, whose record says what it holds already.
+        val before = resolution.record?.importedFrom ?: if (resolution.root == null) store.inbox().importedFrom else null
         if (before != null || store.projects().any { it.importedFrom?.path == path }) {
             val key = store.ensure(resolution).record.key
             return Opened(store.items(key), root, before?.let { elsewhere(file, path, it.path, it.sha256) })
