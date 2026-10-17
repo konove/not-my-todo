@@ -347,8 +347,21 @@ class TodoPanel(
             refresh()
             rescan()
         },
-        IconAction("Show the Items Folder", AllIcons.Actions.MenuOpen) { showItemsFolder() },
+        ItemsFolderAction(),
     )
+
+    /** Shows the store project's item files; there are none to show while the folder has no project. */
+    private inner class ItemsFolderAction : DumbAwareAction("Show the Items Folder", null, AllIcons.Actions.MenuOpen) {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+            val pending = service.pending
+            e.presentation.isEnabled = !pending
+            e.presentation.text = if (pending) "No items here yet" else "Show the Items Folder"
+        }
+
+        override fun actionPerformed(e: AnActionEvent) = showItemsFolder()
+    }
 
     private fun filterActions() = DefaultActionGroup(
         FilterGroup("Priority", Priority.entries, priorities) { it.name },
@@ -471,7 +484,7 @@ class TodoPanel(
     }
 
     private fun refresh() {
-        val error = store.error
+        val error = if (service.pending) null else store.error
         if (error != null) {
             errorLabel.text = "<html>The items cannot be shown:<br>${StringUtil.escapeXmlEntities(error)}</html>"
             cards.show(body, ERROR_CARD)

@@ -34,6 +34,45 @@ class TodoServiceTest : BasePlatformTestCase() {
         assertEquals(listOf(service.root.toString()), record.checkouts)
     }
 
+    fun `test opening writes no project, the first item makes it`() {
+        TestStore.reset(project, made = false)
+        assertTrue(service.pending)
+        assertTrue(StoreService.getInstance().store.projects().isEmpty())
+        val made = StoreView.getInstance(project).create(service.store.key, Draft("first"))
+        assertFalse(service.pending)
+        assertEquals("T-1", made.id)
+        assertEquals(listOf("first"), service.store.items.map { it.title })
+        assertEquals(1, StoreService.getInstance().store.projects().size)
+    }
+
+    fun `test a project made by another writer for this folder is opened`() {
+        TestStore.reset(project, made = false)
+        val stores = StoreService.getInstance().store
+        val key = stores.ensure(stores.resolve(service.base)).record.key
+        stores.items(key).create(Draft("from the server"))
+        service.reload()
+        assertFalse(service.pending)
+        assertEquals(listOf("from the server"), service.store.items.map { it.title })
+    }
+
+    fun `test a project another folder takes under the pending key moves this folder to a free one`() {
+        TestStore.reset(project, made = false)
+        val wanted = service.store.key
+        val stores = StoreService.getInstance().store
+        stores.dir(wanted).writeRecord(ProjectRecord(wanted, checkouts = listOf("/somewhere/else")))
+        stores.items(wanted).create(Draft("not this folder's"))
+        service.reload()
+        assertTrue(service.pending)
+        assertEquals("$wanted-2", service.store.key)
+        assertTrue(service.store.items.isEmpty())
+    }
+
+    fun `test while pending a change anywhere in the store is looked at`() {
+        TestStore.reset(project, made = false)
+        val projects = StoreService.getInstance().store.root.resolve("projects").toString().replace('\\', '/')
+        assertTrue(service.changed(listOf("$projects/other/project.json")))
+    }
+
     fun `test tests that name no store of their own stop before they reach the user's`() {
         val own = System.getProperty(StoreService.ROOT_PROPERTY)
         System.clearProperty(StoreService.ROOT_PROPERTY)

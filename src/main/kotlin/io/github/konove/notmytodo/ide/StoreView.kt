@@ -201,7 +201,8 @@ class StoreView(private val project: Project) {
     /** Makes an item in project [key]. Inbox is made when there is none; another project must be there. */
     fun create(key: String, draft: Draft): TodoItem {
         val own = service.store
-        if (key == own.key) return own.create(draft)
+        // While this folder has no project, the first item makes it.
+        if (key == own.key) return service.ensureProject().create(draft)
         if (key == Store.INBOX) stores.inbox() else if (stores.project(key) == null) throw StoreException("there is no project $key")
         val into = stores.items(key)
         val made = into.create(draft)

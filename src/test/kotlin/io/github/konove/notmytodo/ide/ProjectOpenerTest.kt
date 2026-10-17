@@ -34,13 +34,32 @@ class ProjectOpenerTest {
         }
 
     @Test
-    fun `a folder with no items file gets its project and nothing else`() {
+    fun `a folder with no items file and no project is opened pending, and nothing is written`() {
         val folder = repo("plain")
         val opened = opener.open(folder, folder.resolve(".todos/items.json"))
         assertNull(opened.legacy)
         assertEquals("plain", opened.items.key)
         assertEquals(folder, opened.root)
         assertEquals(emptyList<Any>(), opened.items.items)
+        assertTrue(opened.pending != null)
+        assertTrue(store.projects().isEmpty())
+        assertThrows(StoreException::class.java) { opened.items.create(Draft("x")) }
+    }
+
+    @Test
+    fun `a pending folder's key is one no project has`() {
+        val folder = repo("taken")
+        store.dir("taken").writeRecord(io.github.konove.notmytodo.store.ProjectRecord("taken", checkouts = listOf("/somewhere/else")))
+        assertEquals("taken-2", opener.open(folder, folder.resolve(".todos/items.json")).items.key)
+    }
+
+    @Test
+    fun `a folder with a project opens it`() {
+        val folder = repo("made")
+        store.ensure(store.resolve(folder))
+        val opened = opener.open(folder, folder.resolve(".todos/items.json"))
+        assertNull(opened.pending)
+        assertEquals("made", opened.items.key)
     }
 
     @Test
@@ -107,6 +126,7 @@ class ProjectOpenerTest {
     @Test
     fun `an id the project already has stops the import, and nothing is written`() {
         val folder = repo("clash")
+        store.ensure(store.resolve(folder))
         val first = opener.open(folder, folder.resolve(".todos/items.json"))
         first.items.create(Draft("one"))
         first.items.create(Draft("two"))

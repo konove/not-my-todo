@@ -70,6 +70,13 @@ class TodoService(private val project: Project) : Disposable {
     var available = false
         private set
 
+    /** The folder's resolution while it has no store project yet: the first write makes it. */
+    @Volatile
+    private var resolution: io.github.konove.notmytodo.store.Resolution? = null
+
+    /** True while the folder has no store project: [store] is empty then, and the first write makes the project. */
+    val pending: Boolean get() = resolution != null
+
     // Declared after everything open() sets, so that their initial values do not overwrite what it set.
     @Volatile
     var store: ItemStore = open()
@@ -111,11 +118,11 @@ class TodoService(private val project: Project) : Disposable {
     }
 
     /**
-     * Reads the items again. A project that could not be opened, or whose folder is gone (renamed in
+     * Reads the items again. A project that could not be opened, one still pending (another writer may have made it), or whose folder is gone (renamed in
      * another window), is opened again instead. Returns true when the items may have changed.
      */
     fun reload(): Boolean {
-        if (!available || !Files.isDirectory(store.dir.path)) {
+        if (!available || pending || !Files.isDirectory(store.dir.path)) {
             reopen()
             return true
         }
@@ -132,7 +139,7 @@ class TodoService(private val project: Project) : Disposable {
         val projects = projectsPath()
         fun ours(p: String) = p == mine || p.startsWith("$mine/")
         if (paths.any { it.startsWith(projects) && !ours(it) }) StoreView.getInstance(project).loadLater()
-        val wanted = if (available) mine else projects.removeSuffix("/")
+        val wanted = if (available && !pending) mine else projects.removeSuffix("/")
         if (paths.none { it == wanted || it.startsWith("$wanted/") }) return false
         reloadLater()
         return true
@@ -174,7 +181,18 @@ class TodoService(private val project: Project) : Disposable {
         reopen()
     }
 
-    /** The folder of the store project's item files, which an agent without the tools can edit. */
+    /**
+     * The items to write to: while [pending], the project is made first and opened. Waits for the store's lock.
+     * Throws [StoreException] when it cannot be made.
+     */
+    fun ensureProject(): ItemStore {
+        val wanted = resolution ?: return store
+        StoreService.getInstance().store.ensure(wanted)
+        reopen()
+        return store
+    }
+
+    /** The folder of the store project's item files, which an agent without the tools can edit; while [pending] it does not exist yet. */
     val itemsDir: Path get() = store.dir.path.resolve("items")
 
     /** How the project's items refer to each other and to the items of other projects, these as [StoreView] last read them. */
@@ -191,6 +209,7 @@ class TodoService(private val project: Project) : Disposable {
         return try {
             val opened = ProjectOpener(stores).open(base, legacyFile(), held.held())
             root = opened.root
+            resolution = opened.pending
             available = true
             opened.legacy?.let {
                 if (it is ProjectOpener.Legacy.Imported) held.clear()
@@ -218,6 +237,7 @@ class TodoService(private val project: Project) : Disposable {
 
     private fun unavailable(why: String?): ItemStore {
         available = false
+        resolution = null
         val stores = StoreService.getInstance().store
         return ItemStore.unavailable(ProjectDir(stores.root), stores.lock, why ?: "the store cannot be opened")
     }
