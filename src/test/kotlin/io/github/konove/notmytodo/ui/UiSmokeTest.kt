@@ -543,4 +543,39 @@ class UiSmokeTest : BasePlatformTestCase() {
             Disposer.dispose(panel)
         }
     }
+
+    fun `test another project's item is dragged with its qualified id and Fixed with its own`() {
+        val stores = StoreService.getInstance().store
+        val folder = java.nio.file.Files.createTempDirectory("nmt-checkout")
+        java.nio.file.Files.writeString(folder.resolve("a.txt"), text)
+        stores.dir("infra").writeRecord(ProjectRecord("infra", checkouts = listOf(folder.toString())))
+        stores.items("infra").create(Draft("theirs", anchors = listOf(AnchorResolver.capture("a.txt", text, 2, 2))))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val panel = TodoPanel(project)
+        try {
+            val row = ItemRow(view.find("infra/T-1")!!)
+            val dragged = panel.dragText(row)!!
+            assertTrue(dragged, dragged.startsWith("Fix TODO item infra/T-1 "))
+            assertTrue(dragged, dragged.contains("> ") && dragged.contains("two"))
+            assertTrue(dragged, dragged.contains("${view.itemsDir("infra")}/T-1.json"))
+
+            val fix = ItemActions.elsewherePrompt(project, "infra/T-1")!!
+            assertTrue(fix, fix.startsWith("Fix TODO item T-1 "))
+            assertTrue(fix, fix.contains("call the todo_update tool with id \"T-1\""))
+        } finally {
+            Disposer.dispose(panel)
+        }
+    }
+
+    fun `test the status of another project's item is changed there`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs"))
+        TodoService.getInstance(project).store.create(Draft("mine"))
+        StoreView.getInstance(project).load()
+        ItemActions.setStatus(project, "infra/T-1", Status.IN_PROGRESS)
+        assertEquals(Status.IN_PROGRESS, stores.items("infra").find("T-1")!!.status)
+        assertEquals(Status.OPEN, TodoService.getInstance(project).store.find("T-1")!!.status)
+    }
 }

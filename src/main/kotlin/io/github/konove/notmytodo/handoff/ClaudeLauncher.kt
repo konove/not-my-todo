@@ -35,20 +35,25 @@ object ClaudeLauncher {
     /** Whether Claude Code has the server with the todo tools, so that a prompt can send the agent to todo_get. */
     fun areToolsAvailable(): Boolean = StoreServerHint.getInstance().registered
 
-    /** Opens a terminal tab in the project directory and runs Claude Code with [prompt]. */
-    fun launch(project: Project, prompt: String) {
+    /**
+     * Opens a terminal tab in [dir] and runs Claude Code with [prompt]. [channel] loads the channel,
+     * which reaches this IDE project only: it is left off for a session started in another checkout.
+     */
+    fun launch(
+        project: Project, prompt: String, dir: String? = project.basePath,
+        channel: Boolean = TodoSettings.getInstance().values.channelEnabled,
+    ) {
         val file = Files.createTempFile("not-my-todo-", ".md")
         Files.writeString(file, prompt)
         file.toFile().deleteOnExit()
-        val values = TodoSettings.getInstance().values
-        TerminalRunner.run(project, command(file, values.claudeCommand, values.channelEnabled))
+        TerminalRunner.run(project, dir, command(file, TodoSettings.getInstance().values.claudeCommand, channel))
     }
 
     /** Kept apart so terminal classes load only when the terminal plugin is present. */
     private object TerminalRunner {
-        fun run(project: Project, command: String) {
+        fun run(project: Project, dir: String?, command: String) {
             val widget = TerminalToolWindowManager.getInstance(project)
-                .createShellWidget(project.basePath, "Not My TODO", true, true)
+                .createShellWidget(dir, "Not My TODO", true, true)
             widget.sendCommandToExecute(command)
         }
     }
