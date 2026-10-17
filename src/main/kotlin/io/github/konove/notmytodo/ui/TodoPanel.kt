@@ -54,6 +54,7 @@ import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.ide.ViewIds
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
+import io.github.konove.notmytodo.model.ItemRef
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.TodoItem
@@ -171,9 +172,6 @@ class TodoPanel(
     private val fileScope = ScopeChooserCombo(project, false, false, PropertiesComponent.getInstance(project).getValue(SCOPE_KEY, "Project Files"))
     private var refreshing = false
     private val storeListener: () -> Unit = {
-        ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
-    }
-    private val othersListener: () -> Unit = {
         ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
     }
 
@@ -311,7 +309,7 @@ class TodoPanel(
         add(body, BorderLayout.CENTER)
 
         service.addListener(storeListener)
-        view.addListener(othersListener)
+        view.addListener(storeListener)
         project.messageBus.connect(this).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
             object : FileEditorManagerListener {
@@ -377,10 +375,14 @@ class TodoPanel(
 
     /** Lists the items of [scope]'s projects. The others are read again, in case the watcher missed a change. */
     internal fun showProjects(scope: ProjectScope) {
+        pickProjects(scope)
+        refresh()
+    }
+
+    private fun pickProjects(scope: ProjectScope) {
         projectScope = scope
         PropertiesComponent.getInstance(project).setValue(PROJECTS_KEY, scope.name)
         if (scope != ProjectScope.THIS_PROJECT) view.loadLater()
-        refresh()
     }
 
     /** The ids of the item rows, top to bottom. */
@@ -448,7 +450,11 @@ class TodoPanel(
     fun select(id: String) {
         if (shownItems.none { it.id == id }) {
             // Another project's item is shown with the others; this project's in this project, unless all are shown.
-            projectScope = if (ViewIds.isElsewhere(id)) ProjectScope.ALL else if (projectScope == ProjectScope.ALL) ProjectScope.ALL else ProjectScope.THIS_PROJECT
+            if (ItemRef.parse(id) != null) {
+                val wanted = if (ViewIds.isElsewhere(id)) ProjectScope.ALL
+                else if (projectScope == ProjectScope.INBOX) ProjectScope.THIS_PROJECT else projectScope
+                if (wanted != projectScope) pickProjects(wanted)
+            }
             collapsed.clear()
             search.text = ""
             scope = Scope.ALL
@@ -505,11 +511,7 @@ class TodoPanel(
             )
             val links = if (projectScope == ProjectScope.THIS_PROJECT) service.links() else view.links()
             val rows = ItemGroups.rows(listed, groupBy, collapsed, links)
-            // In All projects every row says whose it is.
-            model.replaceAll(
-                if (projectScope != ProjectScope.ALL) rows
-                else rows.map { row -> if (row is ItemRow) row.copy(project = row.item.id.substringBefore('/', view.home)) else row }
-            )
+            model.replaceAll(if (projectScope == ProjectScope.ALL) withProjects(rows, view.home) else rows)
             val index = model.items.indexOfFirst {
                 if (selectedHeader != null) (it as? GroupHeader)?.key == selectedHeader
                 else (it as? ItemRow)?.item?.id == selectedId
@@ -533,7 +535,7 @@ class TodoPanel(
 
     override fun dispose() {
         service.removeListener(storeListener)
-        view.removeListener(othersListener)
+        view.removeListener(storeListener)
     }
 
     private inner class ShowClosedAction : ToggleAction("Show Closed", null, AllIcons.Actions.Show), DumbAware {
@@ -801,12 +803,17 @@ class TodoPanel(
         }
     }
 
-    private companion object {
+    internal companion object {
         const val LIST_CARD = "list"
         const val ERROR_CARD = "error"
         const val ROW_HEIGHT = 28
         const val SCOPE_KEY = "NotMyTodo.fileScope"
         const val PROJECTS_KEY = "NotMyTodo.projectScope"
+
+        /** In All projects every item row says whose it is; a code comment is no project's item. */
+        fun withProjects(rows: List<Any>, home: String): List<Any> = rows.map { row ->
+            if (row is ItemRow && !CodeTodos.isCode(row.item)) row.copy(project = ItemRef.parse(row.item.id)?.project ?: home) else row
+        }
 
         fun cell() = SimpleColoredComponent().apply { isOpaque = false }
 

@@ -4,6 +4,7 @@ import io.github.konove.notmytodo.TestStore
 import io.github.konove.notmytodo.model.Comment
 import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Author
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.ui.DialogWrapper
@@ -18,7 +19,9 @@ import io.github.konove.notmytodo.ide.StoreService
 import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.store.ProjectRecord
 import io.github.konove.notmytodo.ide.TodoService
+import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
+import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.settings.FixTarget
 import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.store.Draft
@@ -32,7 +35,7 @@ class UiSmokeTest : BasePlatformTestCase() {
         super.setUp()
         TestStore.reset(project)
         // The scope a panel picks is kept for the project; a test starts from the default.
-        com.intellij.ide.util.PropertiesComponent.getInstance(project).unsetValue("NotMyTodo.projectScope")
+        PropertiesComponent.getInstance(project).unsetValue(TodoPanel.PROJECTS_KEY)
     }
 
     fun `test panel builds, selects an item and shows the error state`() {
@@ -499,6 +502,7 @@ class UiSmokeTest : BasePlatformTestCase() {
             panel.select("infra/T-1")
             assertEquals(ProjectScope.ALL, panel.projectScope)
             assertEquals("infra/T-1", panel.detail.currentId)
+            assertEquals("ALL", PropertiesComponent.getInstance(project).getValue(TodoPanel.PROJECTS_KEY))
         } finally {
             Disposer.dispose(panel)
         }
@@ -513,6 +517,28 @@ class UiSmokeTest : BasePlatformTestCase() {
             view.create(io.github.konove.notmytodo.store.Store.INBOX, Draft("a note"))
             PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
             assertEquals(listOf("inbox/T-1"), panel.rowIds)
+        } finally {
+            Disposer.dispose(panel)
+        }
+    }
+
+    fun `test only item rows get a project chip, never a code comment`() {
+        val code = TodoItem(id = "src/a.kt:12", title = "fix this", priority = Priority.P3)
+        val rows = listOf(ItemRow(code), ItemRow(TodoItem(id = "infra/T-1", title = "theirs", priority = Priority.P3)), ItemRow(TodoItem(id = "T-2", title = "mine", priority = Priority.P3)))
+        val shown = TodoPanel.withProjects(rows, "home").map { (it as ItemRow).project }
+        assertEquals(listOf(null, "infra", "home"), shown)
+    }
+
+    fun `test selecting a code comment or this project's item keeps or restores the scope`() {
+        TodoService.getInstance(project).store.create(Draft("mine"))
+        val panel = TodoPanel(project)
+        try {
+            panel.showProjects(ProjectScope.INBOX)
+            panel.select("T-1")
+            assertEquals(ProjectScope.THIS_PROJECT, panel.projectScope)
+            panel.showProjects(ProjectScope.ALL)
+            panel.select("src/a.kt:12")
+            assertEquals(ProjectScope.ALL, panel.projectScope)
         } finally {
             Disposer.dispose(panel)
         }
