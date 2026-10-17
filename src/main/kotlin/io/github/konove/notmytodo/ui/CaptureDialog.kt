@@ -6,12 +6,14 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.panel
 import io.github.konove.notmytodo.capture.CaptureParser
 import io.github.konove.notmytodo.ide.StoreView
@@ -32,10 +34,7 @@ class CaptureDialog(
     private val defaultPriority = TodoSettings.getInstance().values.defaultPriority
     private val chips = JBLabel(chipText("", defaultPriority))
     private val anchorLabel = JBLabel()
-    private val removeAnchor = ActionLink("Remove anchor") {
-        anchor = null
-        showAnchor()
-    }
+    private val removeAnchor = ActionLink("Remove anchor") { dropAnchor() }
     private val detailsArea = JBTextArea(4, 45).apply {
         lineWrap = true
         wrapStyleWord = true
@@ -48,11 +47,14 @@ class CaptureDialog(
      */
     internal val projectBox = ComboBox((listOf(view.home, Store.INBOX) + view.keys()).distinct().toTypedArray()).apply {
         selectedItem = view.home
-        renderer = com.intellij.ui.SimpleListCellRenderer.create("") { key -> if (key == view.home) "$key (this project)" else key }
+        renderer = SimpleListCellRenderer.create("") { key -> if (key == view.home) "$key (this project)" else key }
     }
 
     /** The row of [projectBox], hidden with it while there is an anchor. */
-    private lateinit var projectRow: com.intellij.ui.dsl.builder.Row
+    private lateinit var projectRow: Row
+
+    /** Whether the text asked for Inbox at the last edit: only a new ask moves the selector, so a hand-picked project stays. */
+    private var inboxAsked = false
 
     init {
         title = "New TODO"
@@ -60,7 +62,9 @@ class CaptureDialog(
         titleField.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
                 chips.text = chipText(titleField.text, defaultPriority)
-                if (CaptureParser.parse(titleField.text)?.inbox == true) projectBox.selectedItem = Store.INBOX
+                val asked = CaptureParser.parse(titleField.text)?.inbox == true
+                if (asked && !inboxAsked) projectBox.selectedItem = Store.INBOX
+                inboxAsked = asked
             }
         })
         titleField.text = initialTitle
@@ -73,7 +77,13 @@ class CaptureDialog(
         anchorLabel.text = if (current == null) "Plain note, not attached to code" else anchorText(current)
         removeAnchor.isVisible = current != null
         projectRow.visible(current == null)
-        if (current != null) projectBox.selectedItem = view.home
+        projectBox.selectedItem = if (current != null) view.home else if (inboxAsked) Store.INBOX else projectBox.selectedItem
+    }
+
+    /** What Remove anchor does: the note becomes plain, and goes to Inbox if its text asked for it. */
+    internal fun dropAnchor() {
+        anchor = null
+        showAnchor()
     }
 
     override fun getPreferredFocusedComponent(): JComponent = titleField
@@ -98,6 +108,11 @@ class CaptureDialog(
     /** Fills the title as if typed: for tests. */
     internal fun typeTitle(text: String) {
         titleField.text = text
+    }
+
+    /** Types at the end of the title, one edit as a key press is: for tests. */
+    internal fun typeMore(text: String) {
+        titleField.document.insertString(titleField.document.length, text, null)
     }
 
     /** Why the dialog cannot save what it holds; null when it can. */

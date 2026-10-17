@@ -693,4 +693,35 @@ class UiSmokeTest : BasePlatformTestCase() {
         }
         assertTrue(TodoService.getInstance(project).store.items.isEmpty())
     }
+
+    fun `test removing the anchor sends an @inbox note to Inbox`() {
+        val dialog = CaptureDialog(project, AnchorResolver.capture("a.txt", text, 2, 2))
+        try {
+            dialog.typeTitle("fix it @inbox")
+            assertNotNull(dialog.refusal())
+            dialog.dropAnchor()
+            assertNull(dialog.refusal())
+            assertEquals(io.github.konove.notmytodo.store.Store.INBOX, dialog.projectBox.selectedItem)
+            assertTrue(dialog.save())
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+        assertEquals(listOf("fix it"), StoreService.getInstance().store.items("inbox").items.map { it.title })
+    }
+
+    fun `test a project picked by hand stays while the text keeps asking for Inbox`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        StoreView.getInstance(project).load()
+        val dialog = CaptureDialog(project, null)
+        try {
+            dialog.typeTitle("call @inbox")
+            assertEquals("inbox", dialog.projectBox.selectedItem)
+            dialog.projectBox.selectedItem = "infra"
+            dialog.typeMore(" now")
+            assertEquals("infra", dialog.projectBox.selectedItem)
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+    }
 }
