@@ -250,4 +250,33 @@ class ItemFilterTest {
         assertEquals(listOf("T-3"), ItemFilter.apply(sized, ItemQuery("!s")).map { it.id })
         assertEquals(listOf("T-2"), ItemFilter.apply(sized, ItemQuery("!L")).map { it.id })
     }
+
+    @Test
+    fun `items of several projects sort by number, and the same number by project`() {
+        val items = listOf(
+            TodoItem(id = "infra/T-2", title = "b"), TodoItem(id = "T-2", title = "a"), TodoItem(id = "infra/T-1", title = "c"),
+        )
+        assertEquals(listOf("infra/T-1", "T-2", "infra/T-2"), ItemFilter.apply(items, ItemQuery(sort = ItemSort.ID)).map { it.id })
+        assertEquals(listOf("infra/T-1", "T-2", "infra/T-2"), ItemFilter.apply(items, ItemQuery()).map { it.id })
+    }
+
+    @Test
+    fun `a qualified id is found by the search`() {
+        val items = listOf(TodoItem(id = "infra/T-2", title = "b"), TodoItem(id = "T-2", title = "a"))
+        assertEquals(listOf("infra/T-2"), ItemFilter.apply(items, ItemQuery("infra/t-2")).map { it.id })
+    }
+
+    @Test
+    fun `This file holds only this project's items`() {
+        val anchor = io.github.konove.notmytodo.model.Anchor("src/a.kt", 1, 1, "x", emptyList(), emptyList())
+        val items = listOf(TodoItem(id = "infra/T-2", title = "b", anchors = listOf(anchor)), TodoItem(id = "T-2", title = "a", anchors = listOf(anchor)))
+        assertEquals(listOf("T-2"), ItemFilter.apply(items, ItemQuery(scope = Scope.THIS_FILE, currentPath = "src/a.kt")).map { it.id })
+    }
+
+    @Test
+    fun `grouped by project, this project comes first`() {
+        val items = listOf(TodoItem(id = "infra/T-1", title = "c"), TodoItem(id = "T-2", title = "a"), TodoItem(id = "app2/T-1", title = "d"))
+        val headings = ItemGroups.rows(items, GroupBy.PROJECT, emptySet()).filterIsInstance<GroupHeader>().map { it.label }
+        assertEquals(listOf(ItemGroups.THIS_PROJECT, "app2", "infra"), headings)
+    }
 }

@@ -7,7 +7,7 @@ import io.github.konove.notmytodo.model.TodoItem
 import java.util.TreeMap
 
 enum class GroupBy(val label: String) {
-    NONE("Flatten View"), DIRECTORY("Directory Tree"), FILE("File"), STATUS("Status"), PRIORITY("Priority")
+    NONE("Flatten View"), DIRECTORY("Directory Tree"), FILE("File"), STATUS("Status"), PRIORITY("Priority"), PROJECT("Project")
 }
 
 enum class GroupKind { DIRECTORY, FILE, OTHER }
@@ -30,6 +30,9 @@ data class ItemRow(
 
 object ItemGroups {
     const val NOTES = "Notes"
+
+    /** The heading over this project's own items when they are grouped by project. */
+    const val THIS_PROJECT = "This project"
 
     /**
      * The rows of the list: [items] in the order given, under headings. A heading whose key is in
@@ -75,6 +78,8 @@ object ItemGroups {
             GroupBy.FILE -> path?.let { 0 to it } ?: (1 to NOTES)
             GroupBy.STATUS -> if (CodeTodos.isCode(item)) null else item.status.ordinal to item.status.label
             GroupBy.PRIORITY -> if (CodeTodos.isCode(item)) null else links.priority(item).let { it.ordinal to it.name }
+            // This project first, the others by key.
+            GroupBy.PROJECT -> if (CodeTodos.isCode(item)) null else if ('/' in item.id) 1 to item.id.substringBefore('/') else 0 to THIS_PROJECT
         }
     }
 

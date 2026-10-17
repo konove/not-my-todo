@@ -2,7 +2,7 @@ package io.github.konove.notmytodo.handoff
 
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.model.Anchor
-import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.ItemRef
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.model.Tags
 import io.github.konove.notmytodo.model.TodoItem
@@ -42,8 +42,8 @@ object PromptBuilder {
 
     private fun one(item: TodoItem, files: Map<String, String>, doneWhen: String, options: PromptOptions, extra: String): String {
         val out = StringBuilder()
-        // A TODO comment found in the code is not in the store, so there is no item to report on or to read.
-        val comment = ItemId.parse(item.id) == null
+        // A TODO comment found in the code is not in the store, so there is no item to report on or to read. An item of another project has a qualified id, and is an item.
+        val comment = ItemRef.parse(item.id) == null
         if (comment) {
             out.append("Resolve this TODO comment in the code.\n\n")
             out.append("Comment: ${item.title}\n")
@@ -118,9 +118,9 @@ object PromptBuilder {
         out.append("If the user does not choose, leave the item as it is.\n")
     }
 
-    /** The file the store keeps [item] in, for an agent without the tools; null when the prompt does not know the folder. */
+    /** The file the store keeps [item] in, named by its own id, for an agent without the tools; null when the prompt does not know the folder. */
     private fun itemFile(item: TodoItem, options: PromptOptions): String? =
-        options.itemsDir.takeIf { it.isNotBlank() }?.let { "$it/${item.id}.json" }
+        options.itemsDir.takeIf { it.isNotBlank() }?.let { "$it/${item.id.substringAfterLast('/')}.json" }
 
     /** Every anchor of the item, numbered when there is more than one. */
     private fun locations(out: StringBuilder, item: TodoItem, files: Map<String, String>, contextLines: Int) {

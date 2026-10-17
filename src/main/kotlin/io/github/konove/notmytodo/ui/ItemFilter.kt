@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ui
 
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Effort
+import io.github.konove.notmytodo.model.ItemId
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.Status
@@ -50,21 +51,25 @@ object ItemFilter {
             .sortedWith(order(query.sort, links))
     }
 
+    /** The number of [item]'s id, whatever project it is of; 0 for what has no item id. */
+    private fun number(item: TodoItem): Int = ItemId.parse(item.id.substringAfterLast('/')) ?: 0
+
     private fun order(sort: ItemSort, links: Links): Comparator<TodoItem> {
-        // Within a priority the quick ones come first; an item nobody has sized goes after the large ones.
-        val byPriority = compareBy<TodoItem> { links.priority(it) }.thenBy { it.effort?.ordinal ?: Effort.entries.size }.thenBy { it.number }
+        // Within a priority the quick ones come first; an item nobody has sized goes after the large ones. The same number in two projects goes by project.
+        val byPriority = compareBy<TodoItem> { links.priority(it) }.thenBy { it.effort?.ordinal ?: Effort.entries.size }.thenBy(::number).thenBy { it.id }
         return when (sort) {
             ItemSort.PRIORITY -> byPriority
             ItemSort.UPDATED -> compareByDescending<TodoItem> { it.updated }.then(byPriority)
             // Notes have no file and go last.
             ItemSort.FILE -> compareBy<TodoItem>({ it.anchor == null }, { it.anchor?.path }, { it.anchor?.startLine }).then(byPriority)
-            ItemSort.ID -> compareBy { it.number }
+            ItemSort.ID -> compareBy(::number).thenBy { it.id }
         }
     }
 
     private fun inScope(item: TodoItem, query: ItemQuery, links: Links): Boolean = when (query.scope) {
         Scope.ALL -> true
-        Scope.THIS_FILE -> query.currentPath != null && item.anchors.any { it.path == query.currentPath }
+        // The path of another project's item is in another checkout, whatever it says.
+        Scope.THIS_FILE -> query.currentPath != null && '/' !in item.id && item.anchors.any { it.path == query.currentPath }
         Scope.NOTES -> item.anchors.isEmpty()
         Scope.ANCHOR_LOST -> item.anyLost
         Scope.AGENT_READY ->

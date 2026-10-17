@@ -279,4 +279,14 @@ class PromptBuilderTest {
         val all = PromptBuilder.buildAll(listOf(anchored, anchored.copy(id = "T-15")), files, claim)
         assertTrue(all, all.contains("id \"T-14\" and status \"in_progress\"") && all.contains("id \"T-15\" and status \"in_progress\""))
     }
+
+    @Test
+    fun `an item of another project is an item, and its fallback file has its own id`() {
+        val elsewhere = anchored.copy(id = "infra/T-14")
+        val p = PromptBuilder.build(elsewhere, files, "", PromptOptions(itemsDir = "/store/projects/infra/items"))
+        assertTrue(p, p.startsWith("Fix TODO item infra/T-14 "))
+        assertTrue(p, p.contains("call the todo_update tool with id \"infra/T-14\""))
+        assertTrue(p, p.contains("in /store/projects/infra/items/T-14.json"))
+        assertFalse(p, p.contains("TODO comment"))
+    }
 }

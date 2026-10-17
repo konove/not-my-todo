@@ -11,7 +11,7 @@ import com.intellij.psi.search.PsiTodoSearchHelper
 import com.intellij.psi.search.SearchScope
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.model.Anchor
-import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.ItemRef
 import io.github.konove.notmytodo.model.Priority
 import io.github.konove.notmytodo.model.TodoItem
 
@@ -22,7 +22,8 @@ import io.github.konove.notmytodo.model.TodoItem
 object CodeTodos {
     private const val TODO_PLUGIN = "intellij.todo.plugin"
 
-    fun isCode(item: TodoItem): Boolean = ItemId.parse(item.id) == null
+    /** A comment's id is its file and line, which is no item id: not `T-3`, and not another project's `infra/T-3`. */
+    fun isCode(item: TodoItem): Boolean = ItemRef.parse(item.id) == null
 
     /** False when the IDE's bundled TODO Comments plugin is disabled; then there is nothing to list. */
     fun isAvailable(): Boolean = Plugins.isEnabled(TODO_PLUGIN)
