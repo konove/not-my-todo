@@ -26,6 +26,19 @@ class FilterBarTest {
     private fun rows() = parts.groupBy { it.y }.toSortedMap().values.toList()
 
     @Test
+    fun `the project selector stands first, at its own width`() {
+        val projects = box(130)
+        val withProjects = FilterBar(search, filters, scope, views, projects)
+        withProjects.setSize(1200, 0)
+        withProjects.setSize(1200, withProjects.preferredSize.height)
+        withProjects.doLayout()
+        assertEquals(withProjects.insets.left, projects.x)
+        assertEquals(130, projects.width)
+        assertTrue(search.x > projects.x + projects.width)
+        assertEquals(projects.y, views.y)
+    }
+
+    @Test
     fun `a wide bar is one row, and the search field takes what is left`() {
         layOut(1000)
         assertEquals(listOf(parts), rows())

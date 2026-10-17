@@ -28,7 +28,7 @@ internal data class ChipSpec(
     val kind: Kind, val text: String, val fill: Color? = null, val line: Color? = null,
     val ink: Color? = null, val bold: Boolean = false, val icon: Icon? = null,
 ) {
-    enum class Kind { PRIORITY, EFFORT, STATUS, ID, FLAG, TAG }
+    enum class Kind { PRIORITY, EFFORT, STATUS, ID, FLAG, TAG, PROJECT }
 }
 
 /**
@@ -63,6 +63,9 @@ internal object Chips {
     }
 
     fun tag(tag: String) = ChipSpec(ChipSpec.Kind.TAG, "#$tag", fill = FILL, ink = SOFT)
+
+    /** The project an item is of, in a list of several projects' items. Outlined, as it is not about the item itself. */
+    fun project(key: String) = ChipSpec(ChipSpec.Kind.PROJECT, key, line = LINE, ink = SOFT)
 
     /** Stands for the [count] chips a row had no room for. */
     fun more(count: Int) = ChipSpec(ChipSpec.Kind.TAG, "+$count", fill = FILL, ink = SOFT)

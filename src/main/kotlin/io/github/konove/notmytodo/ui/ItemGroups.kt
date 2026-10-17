@@ -22,11 +22,11 @@ data class GroupHeader(
 /**
  * An item in the item list, [depth] levels in. [blocked] while it waits for another item. A parent
  * has [parts] parts, in the list or not, [partsClosed] of them closed, and while one is open its
- * [priority] is theirs and not its own.
+ * [priority] is theirs and not its own. [project] names the item's project in a list of several projects' items.
  */
 data class ItemRow(
     val item: TodoItem, val depth: Int = 0, val blocked: Boolean = false, val partsClosed: Int = 0, val parts: Int = 0,
-    val priority: Priority = item.priority,
+    val priority: Priority = item.priority, val project: String? = null,
 )
 
 object ItemGroups {

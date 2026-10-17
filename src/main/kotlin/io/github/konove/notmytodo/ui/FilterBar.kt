@@ -7,13 +7,15 @@ import javax.swing.JPanel
 
 /**
  * The bar over the item list: the search field, the filters, the file scope and the view buttons.
+ * The project selector, when there is one, stands first and keeps its width.
  * They share a row while there is room. As the bar narrows the scope gives way first, then the search
  * field, and after that the bar wraps onto more rows, so that nothing is squeezed out or cut off.
  */
 internal class FilterBar(
     private val search: JComponent, filters: JComponent, private val scope: JComponent, views: JComponent,
+    projects: JComponent? = null,
 ) : JPanel(null) {
-    private val parts = listOf(search, filters, scope, views).onEach(::add)
+    private val parts = listOfNotNull(projects, search, filters, scope, views).onEach(::add)
 
     init {
         border = JBUI.Borders.empty(2, 4)

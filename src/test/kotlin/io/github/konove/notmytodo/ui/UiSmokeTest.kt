@@ -13,6 +13,10 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.konove.notmytodo.anchor.AnchorResolver
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.ItemActions
+import io.github.konove.notmytodo.ide.ProjectScope
+import io.github.konove.notmytodo.ide.StoreService
+import io.github.konove.notmytodo.ide.StoreView
+import io.github.konove.notmytodo.store.ProjectRecord
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.settings.FixTarget
@@ -27,6 +31,8 @@ class UiSmokeTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         TestStore.reset(project)
+        // The scope a panel picks is kept for the project; a test starts from the default.
+        com.intellij.ide.util.PropertiesComponent.getInstance(project).unsetValue("NotMyTodo.projectScope")
     }
 
     fun `test panel builds, selects an item and shows the error state`() {
@@ -469,6 +475,46 @@ class UiSmokeTest : BasePlatformTestCase() {
             assertFalse(documents.isDocumentUnsaved(myFixture.editor.document))
         } finally {
             TodoSettings.getInstance().update(TodoSettings.Values())
+        }
+    }
+
+    fun `test All projects lists both T-1s and selects the one asked for`() {
+        val stores = StoreService.getInstance().store
+        TodoService.getInstance(project).store.create(Draft("mine"))
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs"))
+        StoreView.getInstance(project).load()
+        val panel = TodoPanel(project)
+        try {
+            assertEquals(listOf("T-1"), panel.rowIds)
+            panel.showProjects(ProjectScope.ALL)
+            assertEquals(listOf("T-1", "infra/T-1"), panel.rowIds)
+            assertEquals(listOf(StoreView.getInstance(project).home, "infra"), panel.rowProjects)
+            panel.select("infra/T-1")
+            assertEquals("infra/T-1", panel.detail.currentId)
+            panel.showProjects(ProjectScope.THIS_PROJECT)
+            assertEquals(listOf("T-1"), panel.rowIds)
+            assertEquals(listOf<String?>(null), panel.rowProjects)
+            // An item of another project asked for from here is shown with the others.
+            panel.select("infra/T-1")
+            assertEquals(ProjectScope.ALL, panel.projectScope)
+            assertEquals("infra/T-1", panel.detail.currentId)
+        } finally {
+            Disposer.dispose(panel)
+        }
+    }
+
+    fun `test Inbox lists the inbox, and a change to it shows without a reload`() {
+        val view = StoreView.getInstance(project)
+        val panel = TodoPanel(project)
+        try {
+            panel.showProjects(ProjectScope.INBOX)
+            assertTrue(panel.rowIds.isEmpty())
+            view.create(io.github.konove.notmytodo.store.Store.INBOX, Draft("a note"))
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+            assertEquals(listOf("inbox/T-1"), panel.rowIds)
+        } finally {
+            Disposer.dispose(panel)
         }
     }
 }

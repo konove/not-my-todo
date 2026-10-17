@@ -47,8 +47,11 @@ import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.EditorAnchors
 import io.github.konove.notmytodo.ide.ItemActions
+import io.github.konove.notmytodo.ide.ProjectScope
 import io.github.konove.notmytodo.ide.StoreService
+import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.ide.TodoService
+import io.github.konove.notmytodo.ide.ViewIds
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Priority
@@ -109,6 +112,12 @@ class TodoPanel(
 ) : JPanel(BorderLayout()), Disposable {
     private val service = TodoService.getInstance(project)
     private val store get() = service.store
+    private val view = StoreView.getInstance(project)
+
+    /** Which projects' items are listed; kept for the project between sessions. */
+    internal var projectScope: ProjectScope = PropertiesComponent.getInstance(project).getValue(PROJECTS_KEY)
+        ?.let { name -> ProjectScope.entries.firstOrNull { it.name == name } } ?: ProjectScope.THIS_PROJECT
+        private set
     private val navModel = CollectionListModel<Nav>()
     private var navByMouse = false
     internal val nav = object : JBList<Nav>(navModel) {
@@ -162,6 +171,9 @@ class TodoPanel(
     private val fileScope = ScopeChooserCombo(project, false, false, PropertiesComponent.getInstance(project).getValue(SCOPE_KEY, "Project Files"))
     private var refreshing = false
     private val storeListener: () -> Unit = {
+        ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
+    }
+    private val othersListener: () -> Unit = {
         ApplicationManager.getApplication().invokeLater({ refresh() }, project.disposed)
     }
 
@@ -238,7 +250,7 @@ class TodoPanel(
             KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
             JComponent.WHEN_FOCUSED,
         )
-        search.textEditor.emptyText.text = "Words, T-12, #tag, !p1"
+        search.textEditor.emptyText.text = "Words, T-12, infra/T-3, #tag, !p1"
         navSearch.textEditor.emptyText.text = "Scope or tag"
         listOf(search, navSearch).forEach {
             it.addDocumentListener(object : DocumentAdapter() {
@@ -263,7 +275,9 @@ class TodoPanel(
         filters.targetComponent = this
         val views = ActionManager.getInstance().createActionToolbar("NotMyTodoFilters", viewActions(), true)
         views.targetComponent = this
-        val listTop = FilterBar(search, filters.component, fileScope, views.component)
+        val projects = ActionManager.getInstance().createActionToolbar("NotMyTodoProjects", DefaultActionGroup(ProjectsGroup()), true)
+        projects.targetComponent = this
+        val listTop = FilterBar(search, filters.component, fileScope, views.component, projects.component)
         val navPane = JPanel(BorderLayout()).apply {
             add(JPanel(BorderLayout()).apply {
                 border = JBUI.Borders.empty(2, 4)
@@ -297,6 +311,7 @@ class TodoPanel(
         add(body, BorderLayout.CENTER)
 
         service.addListener(storeListener)
+        view.addListener(othersListener)
         project.messageBus.connect(this).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
             object : FileEditorManagerListener {
@@ -330,6 +345,7 @@ class TodoPanel(
         ShowClosedAction(),
         IconAction("Reload", AllIcons.Actions.Refresh) {
             service.reload()
+            view.loadLater()
             refresh()
             rescan()
         },
@@ -359,8 +375,47 @@ class TodoPanel(
     /** The text [row] is dragged or copied as: the prompt for its item, and nothing for a heading. */
     internal fun dragText(row: Any?): String? = (row as? ItemRow)?.let { ItemActions.dragPrompt(project, it.item) }
 
-    /** Whether [item]'s file is in the scope picked in the toolbar. Notes and files that are gone always are. */
+    /** Lists the items of [scope]'s projects. The others are read again, in case the watcher missed a change. */
+    internal fun showProjects(scope: ProjectScope) {
+        projectScope = scope
+        PropertiesComponent.getInstance(project).setValue(PROJECTS_KEY, scope.name)
+        if (scope != ProjectScope.THIS_PROJECT) view.loadLater()
+        refresh()
+    }
+
+    /** The ids of the item rows, top to bottom. */
+    internal val rowIds: List<String> get() = model.items.filterIsInstance<ItemRow>().map { it.item.id }
+
+    /** The project chips of the item rows, top to bottom; null where a row has none. */
+    internal val rowProjects: List<String?> get() = model.items.filterIsInstance<ItemRow>().map { it.project }
+
+    /** The toolbar dropdown at the left of the filter bar that picks [projectScope]. */
+    private inner class ProjectsGroup : DefaultActionGroup("This project", true), DumbAware {
+        init {
+            templatePresentation.putClientProperty(ActionUtil.SHOW_TEXT_IN_TOOLBAR, true)
+            templatePresentation.icon = AllIcons.Nodes.Folder
+            ProjectScope.entries.forEach { add(Pick(it)) }
+        }
+
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+            e.presentation.text = projectScope.label
+            e.presentation.isEnabled = !codeMode
+        }
+
+        private inner class Pick(private val value: ProjectScope) : ToggleAction(value.label), DumbAware {
+            override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+            override fun isSelected(e: AnActionEvent): Boolean = projectScope == value
+
+            override fun setSelected(e: AnActionEvent, state: Boolean) = showProjects(value)
+        }
+    }
+
+    /** Whether [item]'s file is in the scope picked in the toolbar. Notes, files that are gone and other projects' items always are. */
     private fun inFileScope(item: TodoItem): Boolean {
+        if (ViewIds.isElsewhere(item.id)) return true
         val files = item.anchors.mapNotNull { service.findFile(it.path) }
         return files.isEmpty() || files.any { CodeTodos.inScope(fileScope.selectedScope, it) }
     }
@@ -392,6 +447,8 @@ class TodoPanel(
 
     fun select(id: String) {
         if (shownItems.none { it.id == id }) {
+            // Another project's item is shown with the others; this project's in this project, unless all are shown.
+            projectScope = if (ViewIds.isElsewhere(id)) ProjectScope.ALL else if (projectScope == ProjectScope.ALL) ProjectScope.ALL else ProjectScope.THIS_PROJECT
             collapsed.clear()
             search.text = ""
             scope = Scope.ALL
@@ -420,7 +477,7 @@ class TodoPanel(
         val currentPath = FileEditorManager.getInstance(project).selectedFiles.firstOrNull()
             ?.let { service.relativePath(it) }
         // Asking a scope about a file needs a read action, which the event thread no longer holds by itself.
-        val all = runReadActionBlocking { store.items.filter(::inFileScope) }
+        val all = runReadActionBlocking { view.items(projectScope).filter(::inFileScope) }
         // Replacing the models clears the selections for a moment; nothing may react to that.
         refreshing = true
         try {
@@ -446,7 +503,13 @@ class TodoPanel(
             else ItemFilter.apply(
                 all, ItemQuery(search.text, scope, currentPath, showClosed, tag, priorities, statuses, authors, sort),
             )
-            model.replaceAll(ItemGroups.rows(listed, groupBy, collapsed, service.links()))
+            val links = if (projectScope == ProjectScope.THIS_PROJECT) service.links() else view.links()
+            val rows = ItemGroups.rows(listed, groupBy, collapsed, links)
+            // In All projects every row says whose it is.
+            model.replaceAll(
+                if (projectScope != ProjectScope.ALL) rows
+                else rows.map { row -> if (row is ItemRow) row.copy(project = row.item.id.substringBefore('/', view.home)) else row }
+            )
             val index = model.items.indexOfFirst {
                 if (selectedHeader != null) (it as? GroupHeader)?.key == selectedHeader
                 else (it as? ItemRow)?.item?.id == selectedId
@@ -455,8 +518,10 @@ class TodoPanel(
         } finally {
             refreshing = false
         }
-        val review = all.count { it.status == Status.FIXED }
-        onSummary("${all.count { !it.isClosed }} open" + if (review > 0) " · $review to review" else "")
+        // The tool window's title speaks of this project, whatever the list shows.
+        val own = if (projectScope == ProjectScope.THIS_PROJECT) all else store.items
+        val review = own.count { it.status == Status.FIXED }
+        onSummary("${own.count { !it.isClosed }} open" + if (review > 0) " · $review to review" else "")
         detail.show(selected)
     }
 
@@ -468,6 +533,7 @@ class TodoPanel(
 
     override fun dispose() {
         service.removeListener(storeListener)
+        view.removeListener(othersListener)
     }
 
     private inner class ShowClosedAction : ToggleAction("Show Closed", null, AllIcons.Actions.Show), DumbAware {
@@ -719,7 +785,7 @@ class TodoPanel(
             )
             if (row.parts > 0) title.append("  ${row.partsClosed}/${row.parts} closed", grey)
             value.effort?.let { cells.effort.append(it.name, grey) }
-            cells.tags.show(listOfNotNull(Chips.waits(value, row.blocked)) + Chips.tags(value))
+            cells.tags.show(listOfNotNull(row.project?.let(Chips::project), Chips.waits(value, row.blocked)) + Chips.tags(value))
             val anchor = value.anchor
             when {
                 anchor == null -> place.append("Note", grey)
@@ -728,7 +794,8 @@ class TodoPanel(
             }
             cells.status.show(if (code) emptyList() else listOf(Chips.status(value.status)))
             if (!code) {
-                id.append(value.id, grey)
+                // The project is on the chip; the column is narrow.
+                id.append(if (ViewIds.isElsewhere(value.id)) value.id.substringAfterLast('/') else value.id, grey)
                 updated.append(updatedText(value.updated), grey)
             }
         }
@@ -739,6 +806,7 @@ class TodoPanel(
         const val ERROR_CARD = "error"
         const val ROW_HEIGHT = 28
         const val SCOPE_KEY = "NotMyTodo.fileScope"
+        const val PROJECTS_KEY = "NotMyTodo.projectScope"
 
         fun cell() = SimpleColoredComponent().apply { isOpaque = false }
 
