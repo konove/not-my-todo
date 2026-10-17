@@ -705,6 +705,19 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(html, html.contains("Moved from inbox/T-4"))
     }
 
+    fun `test the project selector names this project as this project`() {
+        val home = StoreView.getInstance(project).home
+        val dialog = CaptureDialog(project, null)
+        try {
+            fun shown(key: String) =
+                dialog.projectBox.renderer.getListCellRendererComponent(javax.swing.JList(), key, 0, false, false).accessibleContext.accessibleName
+            assertEquals("$home (this project)", shown(home))
+            assertEquals("inbox", shown("inbox"))
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+    }
+
     fun `test a note with @inbox goes into Inbox, which is made for it`() {
         val dialog = CaptureDialog(project, null)
         try {

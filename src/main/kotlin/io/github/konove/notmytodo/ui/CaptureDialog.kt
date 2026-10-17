@@ -6,7 +6,6 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.DocumentAdapter
-import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -15,6 +14,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import io.github.konove.notmytodo.capture.CaptureParser
 import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.model.Anchor
@@ -47,7 +47,7 @@ class CaptureDialog(
      */
     internal val projectBox = ComboBox((listOf(view.home, Store.INBOX) + view.keys()).distinct().toTypedArray()).apply {
         selectedItem = view.home
-        renderer = SimpleListCellRenderer.create("") { key -> if (key == view.home) "$key (this project)" else key }
+        renderer = textListCellRenderer<String?> { key -> if (key == view.home) "$key (this project)" else key }
     }
 
     /** The row of [projectBox], hidden with it while there is an anchor. */
