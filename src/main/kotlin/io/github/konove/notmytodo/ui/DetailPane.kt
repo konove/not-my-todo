@@ -41,10 +41,12 @@ import io.github.konove.notmytodo.ide.AnchorTracker
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.FixCommits
 import io.github.konove.notmytodo.ide.ItemActions
+import io.github.konove.notmytodo.ide.StoreView
 import io.github.konove.notmytodo.ide.TodoService
+import io.github.konove.notmytodo.ide.ViewIds
 import io.github.konove.notmytodo.model.Anchor
 import io.github.konove.notmytodo.model.Comment
-import io.github.konove.notmytodo.model.ItemId
+import io.github.konove.notmytodo.model.ItemRef
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.Effort
 import io.github.konove.notmytodo.model.Priority
@@ -218,7 +220,7 @@ internal class Columns(
  * The Edit button swaps the title, facts and details for fields; Save writes them.
  */
 class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
-    private val store get() = TodoService.getInstance(project).store
+    private val view get() = StoreView.getInstance(project)
     private var current: TodoItem? = null
 
     /** Which of the item's anchors the code box shows, and Jump, Re-attach and Remove act on. */
@@ -236,7 +238,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     internal val effortBox = ComboBox(arrayOf<Any>(NO_EFFORT, *Effort.entries.toTypedArray())).apply { toolTipText = "Effort" }
     private val statusBox = ComboBox(Status.entries.toTypedArray()).apply { toolTipText = "Status" }
     private val tagsField = JBTextField().apply { emptyText.text = "#tags" }
-    private val blockedField = JBTextField().apply { emptyText.text = "Blocked by: T-1 T-2" }
+    private val blockedField = JBTextField().apply { emptyText.text = "Blocked by: T-1 infra/T-2" }
     private val duplicateField = JBTextField().apply { emptyText.text = "Duplicate of" }
     private val parentField = JBTextField().apply { emptyText.text = "Part of" }
 
@@ -319,6 +321,15 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     /** Whether the shown item is in the store, and not a TODO comment found in the code. */
     private val tracked: Boolean get() = current?.let { !CodeTodos.isCode(it) } == true
 
+    /** Whether the shown item is of this project: only its anchors are in this IDE project's files. */
+    private val own: Boolean get() = current?.let { !ViewIds.isElsewhere(it.id) } == true
+
+    /** The project of the shown item. */
+    private val key: String get() = current?.let { ViewIds.split(it.id, view.home)?.project } ?: view.home
+
+    /** Fix starts Claude Code in the item's checkout: an item of a project with none here cannot be fixed from here. */
+    internal val fixEnabled: Boolean get() = fixButton.isEnabled
+
     private fun status(vararg shown: Status): () -> Boolean = { tracked && current?.status in shown }
 
     private val fixButton = PrimaryIconButton("Fix with Claude", AllIcons.Actions.Lightning) {
@@ -339,9 +350,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             IconAction("Jump to Code", AllIcons.Actions.EditSource, { shownAnchor != null }) {
                 current?.let { ItemActions.navigate(project, it, shownAnchor) }
             },
-            IconAction("Re-attach to Selection", AllIcons.General.Locate, { tracked }) { reattach() },
-            IconAction("Add an Anchor: the Selection, or the Whole File", AllIcons.General.Add, { tracked }) { addAnchor() },
-            IconAction("Remove This Anchor", AllIcons.General.Remove, { tracked && shownAnchor != null }) { removeAnchor() },
+            IconAction("Re-attach to Selection", AllIcons.General.Locate, { tracked && own }) { reattach() },
+            IconAction("Add an Anchor: the Selection, or the Whole File", AllIcons.General.Add, { tracked && own }) { addAnchor() },
+            IconAction("Remove This Anchor", AllIcons.General.Remove, { tracked && own && shownAnchor != null }) { removeAnchor() },
             Separator.getInstance(),
             DecisionAction(),
             EditAction(),
@@ -425,7 +436,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         override fun setSelected(e: AnActionEvent, state: Boolean) {
             val item = current ?: return
             try {
-                val saved = store.update(item.id) {
+                val saved = view.update(item.id) {
                     it.copy(tags = if (state) (it.tags + Tags.NEEDS_DECISION).distinct() else it.tags - Tags.NEEDS_DECISION)
                 }
                 show(saved)
@@ -458,11 +469,11 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
 
     /** Shows the read-only rows or the fields, whichever [editing] asks for. */
     private fun showMode() {
-        val item = current?.let { project.service<FixCommits>().shown(it) }
+        val item = current?.let { if (own) project.service<FixCommits>().shown(it) else it }
         viewRows.forEach { it.visible(!editing) }
         editRows.forEach { it.visible(editing) }
         viewLinksRow.visible(!editing && viewLinks.iterator().hasNext())
-        viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty() || item.source != null || item.fixedIn != null || item.resolution != null))
+        viewDetailsRow.visible(!editing && item != null && (item.details.isNotBlank() || item.comments.isNotEmpty() || item.source != null || item.fixedIn != null || item.resolution != null || item.movedFrom != null))
         toolbar.updateActionsAsync()
         columns.revalidate()
         revalidate()
@@ -502,7 +513,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         if (shown == null || fixedInField.text == oneLine(shown.fixedIn)) fixedInField.text = oneLine(item.fixedIn)
         if (shown == null || resolutionField.text == oneLine(shown.resolution)) resolutionField.text = oneLine(item.resolution)
         val code = CodeTodos.isCode(item)
-        val links = if (code) Links.NONE else TodoService.getInstance(project).links()
+        val links = if (code) Links.NONE else if (ViewIds.isElsewhere(item.id)) view.links() else TodoService.getInstance(project).links()
         showLinks(item, links)
         // A parent's priority is that of its open parts, so there is nothing to choose while it has any.
         val fromParts = links.hasOpenParts(item)
@@ -513,9 +524,10 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         viewTitle.text = item.title
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
         val fixes = project.service<FixCommits>()
-        val text = ItemText.html(fixes.shown(item), grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
+        // The fixing commit is looked for in this checkout's git, which knows nothing of another project's commits.
+        val text = ItemText.html(if (own) fixes.shown(item) else item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
         // The commit that fixed it is looked up in the background and shown when it is found.
-        if (fixes.derives(item)) fixes.refreshLater { if (current === item) show(item) }
+        if (own && fixes.derives(item)) fixes.refreshLater { if (current === item) show(item) }
         if (text != shownDetails) {
             shownDetails = text
             viewDetails.text = text
@@ -531,6 +543,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         whereLabel.toolTipText = anchor?.path
         anchorSteps.isVisible = item.anchors.size > 1
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
+        val here = code || own || view.checkout(key) != null
+        fixButton.isEnabled = here
+        fixButton.toolTipText = if (here) null else "$key has no checkout on this machine, so there is no folder to start Claude Code in"
         codeBox.isVisible = anchor != null
         if (anchor != null) showCode(anchor, PriorityColors.tint(priority))
         deleteToolbar.updateActionsAsync()
@@ -545,7 +560,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             if (ids.isEmpty()) return
             viewLinks.append((if (viewLinks.iterator().hasNext()) "  ·  " else "") + label, grey)
             ids.forEach { id ->
-                val closed = store.find(id)?.isClosed != false
+                val closed = view.find(id)?.isClosed != false
                 val style = if (closed) SimpleTextAttributes(SimpleTextAttributes.STYLE_STRIKEOUT, JBUI.CurrentTheme.Link.Foreground.ENABLED) else SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES
                 viewLinks.append(" ")
                 viewLinks.append(id, style, id)
@@ -580,7 +595,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
      * whole file shows how the file starts, with nothing tinted.
      */
     private fun showCode(anchor: Anchor, tint: Color) {
-        val fileLines = if (anchor.lost) null else TodoService.getInstance(project).readText(anchor.path)?.lines()
+        val fileLines = if (anchor.lost) null else view.readText(key, anchor.path)?.lines()
         val first: Int
         val shownLines: List<String>
         if (anchor.isFile) {
@@ -646,14 +661,15 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             val effort = effortBox.selectedItem as? Effort
             val status = statusBox.selectedItem as Status
             val tags = Tags.parseList(tagsField.text)
-            val blockedBy = ItemId.parseList(blockedField.text)
-            val duplicateOf = ItemId.parseList(duplicateField.text).also { require(it.size < 2) { "an item is a duplicate of one item" } }.firstOrNull()
-            val parent = ItemId.parseList(parentField.text).also { require(it.size < 2) { "an item is a part of one item" } }.firstOrNull()
+            val blockedBy = ItemRef.parseList(blockedField.text).map { it.toString() }
+            val duplicateOf = ItemRef.parseList(duplicateField.text).also { require(it.size < 2) { "an item is a duplicate of one item" } }.firstOrNull()?.toString()
+            val parent = ItemRef.parseList(parentField.text).also { require(it.size < 2) { "an item is a part of one item" } }.firstOrNull()?.toString()
             val source = sourceField.text
             val fixedIn = fixedInField.text
             val resolution = resolutionField.text
             // Only the fields I edited are written; the rest keep whatever is in the file now.
-            val saved = store.update(item.id) {
+            val home = view.home
+            val saved = view.update(item.id) {
                 it.copy(
                     title = if (title != item.title) title else it.title,
                     details = if (details != item.details) details else it.details,
@@ -661,9 +677,9 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
                     effort = if (effort != item.effort) effort else it.effort,
                     status = if (status != item.status) status else it.status,
                     tags = if (tags != item.tags) tags else it.tags,
-                    blockedBy = if (blockedBy != item.blockedBy) blockedBy else it.blockedBy,
-                    duplicateOf = if (duplicateOf != item.duplicateOf) duplicateOf else it.duplicateOf,
-                    parent = if (parent != item.parent) parent else it.parent,
+                    blockedBy = if (blockedBy != item.blockedBy) blockedBy.map { ViewIds.stored(it, home) } else it.blockedBy,
+                    duplicateOf = if (duplicateOf != item.duplicateOf) duplicateOf?.let { ViewIds.stored(it, home) } else it.duplicateOf,
+                    parent = if (parent != item.parent) parent?.let { ViewIds.stored(it, home) } else it.parent,
                     source = if (source != oneLine(item.source)) source else it.source,
                     fixedIn = if (fixedIn != oneLine(item.fixedIn)) fixedIn else it.fixedIn,
                     resolution = if (resolution != oneLine(item.resolution)) resolution else it.resolution,
@@ -681,7 +697,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
     internal fun setStatus(status: Status) {
         val item = current ?: return
         ItemActions.setStatus(project, item.id, status)
-        show(store.find(item.id))
+        show(view.find(item.id))
     }
 
     internal fun step(by: Int) {
@@ -698,7 +714,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
             Messages.showInfoMessage(project, "Select the code in the editor first.", "Not My TODO")
             return
         }
-        show(store.find(item.id))
+        show(view.find(item.id))
     }
 
     private fun addAnchor() {
@@ -710,12 +726,12 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         }
         // Show the one just added; it is the last.
         anchorIndex = Int.MAX_VALUE
-        show(store.find(item.id))
+        show(view.find(item.id))
     }
 
     internal fun removeAnchor() {
         val item = current ?: return
-        if (project.service<AnchorTracker>().remove(item.id, anchorIndex)) show(store.find(item.id))
+        if (project.service<AnchorTracker>().remove(item.id, anchorIndex)) show(view.find(item.id))
     }
 
     private fun delete() {
@@ -723,7 +739,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         val answer = Messages.showYesNoDialog(project, "Delete ${item.id}: ${item.title}?", "Not My TODO", null)
         if (answer != Messages.YES) return
         try {
-            store.delete(item.id)
+            view.delete(item.id)
         } catch (e: StoreException) {
             Messages.showErrorDialog(project, e.message, "Not My TODO")
         }

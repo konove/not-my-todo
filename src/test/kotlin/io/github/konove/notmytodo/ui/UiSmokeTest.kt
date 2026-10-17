@@ -590,4 +590,53 @@ class UiSmokeTest : BasePlatformTestCase() {
             ItemActions.fixAllQuestion(2, "T-1, T-2", "a terminal", true, 1, 3),
         )
     }
+
+    fun `test an item of a project with no checkout can be edited and closed, and its Fix is disabled`() {
+        val view = StoreView.getInstance(project)
+        val note = view.create(io.github.konove.notmytodo.store.Store.INBOX, Draft("a note", anchors = listOf(AnchorResolver.capture("x.txt", text, 2, 2))))
+        val pane = DetailPane(project)
+        pane.show(note)
+        assertFalse(pane.fixEnabled)
+        assertTrue(pane.codeBox.isVisible)
+        pane.titleField.text = "a better note"
+        pane.save()
+        assertEquals("a better note", StoreService.getInstance().store.items("inbox").find("T-1")!!.title)
+        pane.setStatus(Status.DONE)
+        assertEquals(Status.DONE, StoreService.getInstance().store.items("inbox").find("T-1")!!.status)
+        assertEquals(Status.DONE, view.find("inbox/T-1")!!.status)
+    }
+
+    fun `test a link typed on another project's item means this project's item`() {
+        val stores = StoreService.getInstance().store
+        val mine = TodoService.getInstance(project).store.create(Draft("mine"))
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs"))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val pane = DetailPane(project)
+        pane.show(view.find("infra/T-1"))
+        pane.linkFields[0].text = mine.id
+        pane.save()
+        assertEquals(listOf("${view.home}/${mine.id}"), stores.items("infra").find("T-1")!!.blockedBy)
+        assertEquals(listOf(mine.id), view.find("infra/T-1")!!.blockedBy)
+        assertEquals("Blocked by ${mine.id}", pane.viewLinks.getCharSequence(false).toString())
+    }
+
+    fun `test a link to another project's item is typed with its qualified id`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs"))
+        StoreView.getInstance(project).load()
+        val mine = TodoService.getInstance(project).store.create(Draft("mine"))
+        val pane = DetailPane(project)
+        pane.show(mine)
+        pane.linkFields[0].text = "infra/t-1"
+        pane.save()
+        assertEquals(listOf("infra/T-1"), TodoService.getInstance(project).store.find(mine.id)!!.blockedBy)
+    }
+
+    fun `test the detail pane says where an item was moved from`() {
+        val html = ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-1", "a", movedFrom = "inbox/T-4"))
+        assertTrue(html, html.contains("Moved from inbox/T-4"))
+    }
 }

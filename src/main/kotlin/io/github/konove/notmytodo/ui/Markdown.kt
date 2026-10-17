@@ -62,15 +62,16 @@ object ItemText {
         }
         item.decisions.forEach { decision(out, it, zone, grey) }
         val decided = item.toDecide != null || item.decisions.isNotEmpty()
-        if (decided && item.source != null) out.append("<p style=\"margin-top: 14px\"></p>")
+        if (decided && (item.source != null || item.movedFrom != null)) out.append("<p style=\"margin-top: 14px\"></p>")
         item.source?.let { out.append("<p><font color=\"$grey\">From ${StringUtil.escapeXmlEntities(it)}</font></p>") }
+        item.movedFrom?.let { out.append("<p><font color=\"$grey\">Moved from ${StringUtil.escapeXmlEntities(it)}</font></p>") }
         if (item.fixedIn != null || item.resolution != null) {
             val commit = item.fixedIn?.let { " in ${StringUtil.escapeXmlEntities(it)}" }.orEmpty()
             val head = if (item.status == Status.WONT_FIX) "Closed" else "Fixed"
             out.append("<p><font color=\"$grey\"><b>$head$commit</b></font></p>")
             item.resolution?.let { out.append(Markdown.body(it)) }
         }
-        val above = decided || item.source != null || item.fixedIn != null || item.resolution != null
+        val above = decided || item.source != null || item.movedFrom != null || item.fixedIn != null || item.resolution != null
         if (item.details.isNotBlank()) {
             if (above) out.append("<p style=\"margin-top: 14px\"><font color=\"$grey\"><b>Details</b></font></p>")
             out.append(Markdown.body(item.details))
