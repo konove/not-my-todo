@@ -559,13 +559,28 @@ class UiSmokeTest : BasePlatformTestCase() {
             assertTrue(dragged, dragged.startsWith("Fix TODO item infra/T-1 "))
             assertTrue(dragged, dragged.contains("> ") && dragged.contains("two"))
             assertTrue(dragged, dragged.contains("${view.itemsDir("infra")}/T-1.json"))
+            // The session it is dropped on runs in this project, where the path alone names another file.
+            assertTrue(dragged, dragged.contains("Location: ${folder.resolve("a.txt")}, lines 2-2"))
 
             val fix = ItemActions.elsewherePrompt(project, "infra/T-1")!!
             assertTrue(fix, fix.startsWith("Fix TODO item T-1 "))
             assertTrue(fix, fix.contains("call the todo_update tool with id \"T-1\""))
+            assertTrue(fix, fix.contains("Location: a.txt, lines 2-2"))
+            assertTrue(fix, fix.contains("${view.itemsDir("infra")}/T-1.json"))
         } finally {
             Disposer.dispose(panel)
         }
+    }
+
+    fun `test another project's item with no checkout here is dragged with its paths said to be of that checkout`() {
+        val stores = StoreService.getInstance().store
+        stores.dir("infra").writeRecord(ProjectRecord("infra"))
+        stores.items("infra").create(Draft("theirs", anchors = listOf(AnchorResolver.capture("a.txt", text, 2, 2))))
+        val view = StoreView.getInstance(project)
+        view.load()
+        val dragged = ItemActions.dragPrompt(project, view.find("infra/T-1")!!)
+        assertTrue(dragged, dragged.contains("Location: a.txt."))
+        assertTrue(dragged, dragged.contains("The code is in the checkout of project infra, which is not on this machine"))
     }
 
     fun `test the status of another project's item is changed there`() {

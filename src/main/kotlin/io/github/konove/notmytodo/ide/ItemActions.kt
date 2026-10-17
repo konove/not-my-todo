@@ -26,6 +26,7 @@ import io.github.konove.notmytodo.settings.TodoSettings
 import io.github.konove.notmytodo.store.StoreException
 import io.github.konove.notmytodo.ui.TodoPanel
 import java.awt.datatransfer.StringSelection
+import java.nio.file.InvalidPathException
 
 /** Item actions shared by the panel and the gutter popup. Call on the event thread. */
 object ItemActions {
@@ -135,8 +136,20 @@ object ItemActions {
             else -> TodoService.getInstance(project).links().shown(view.find(row.id) ?: row)
         }
         saveAnchored(project, listOf(item))
-        val options = promptOptions(project).copy(claim = true, itemsDir = view.itemsDir(keyOf(view, item)).toString())
-        return PromptBuilder.build(item, fileTexts(project, listOf(item)), "", options)
+        val key = keyOf(view, item)
+        val files = fileTexts(project, listOf(item))
+        val options = promptOptions(project).copy(claim = true, itemsDir = view.itemsDir(key).toString())
+        if (!ViewIds.isElsewhere(item.id)) return PromptBuilder.build(item, files, "", options)
+        // The session it lands on runs in this project, where another project's paths name other files: they are made
+        // those of its checkout, or said to be of one this machine has not.
+        val checkout = view.checkout(key) ?: return PromptBuilder.build(item, files, "", options.copy(absentCheckout = key))
+        fun inCheckout(path: String) = try {
+            checkout.resolve(path).toString()
+        } catch (_: InvalidPathException) {
+            path
+        }
+        val rooted = item.copy(anchors = item.anchors.map { it.copy(path = inCheckout(it.path)) })
+        return PromptBuilder.build(rooted, files.mapKeys { inCheckout(it.key) }, "", options)
     }
 
     /** Where the prompt went, or null when the dialog was cancelled. */

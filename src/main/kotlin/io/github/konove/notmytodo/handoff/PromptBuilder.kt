@@ -14,6 +14,8 @@ import io.github.konove.notmytodo.model.TodoItem
  * without the tools; with none, no fallback is offered.
  * With [claim] the agent is told to mark an open item in progress before it starts: for a prompt
  * that may never reach an agent, where the IDE cannot know that the work has begun.
+ * [absentCheckout] is the project the item's code is of when its checkout is not on this machine: the
+ * paths are then relative to a folder the agent cannot see, and the prompt says so.
  */
 data class PromptOptions(
     val contextLines: Int = 20,
@@ -21,6 +23,7 @@ data class PromptOptions(
     val extra: String = "",
     val itemsDir: String = "",
     val claim: Boolean = false,
+    val absentCheckout: String = "",
 )
 
 /** Builds the text handed to an agent for one item. The files are the text of each anchored file, by its path. */
@@ -69,6 +72,10 @@ object PromptBuilder {
                 item.comments.forEach { out.append("- ${it.author.json}, ${it.time}: ${it.text}\n") }
             }
             locations(out, item, files, options.contextLines)
+        }
+        if (options.absentCheckout.isNotBlank() && item.anchors.isNotEmpty()) {
+            out.append("\nThe code is in the checkout of project ${options.absentCheckout}, which is not on this machine; ")
+            out.append("the paths are relative to that checkout, not to the folder you are in.\n")
         }
 
         if (doneWhen.isNotBlank()) out.append("\nDone when: ${doneWhen.trim()}\n")
