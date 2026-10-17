@@ -113,9 +113,11 @@ object ItemActions {
         val key = ViewIds.split(viewId, view.home)?.project ?: return
         // The checkout and who shares it come from the store, which the event thread does not read.
         val found = ProgressManager.getInstance().runProcessWithProgressSynchronously(
-            ThrowableComputable<Pair<Path?, List<String>>, RuntimeException> {
+            ThrowableComputable<Triple<Path?, List<String>, List<String>>, RuntimeException> {
                 val checkout = view.checkout(key)
-                checkout to (checkout?.let { view.sharing(key, it) } ?: emptyList())
+                // The item as the store has it now, which is also what the prompt is built from.
+                val paths = view.target(viewId)?.let { t -> t.items.find(t.id)?.anchors?.map { it.path }?.distinct() } ?: emptyList()
+                Triple(checkout, checkout?.let { view.sharing(key, it) } ?: emptyList(), paths)
             },
             "Looking for the checkout of $key", false, project,
         )
@@ -141,7 +143,7 @@ object ItemActions {
             return
         }
         // The prompt is read from disk: what the editors show of the item's files is saved first.
-        view.find(viewId)?.let { item -> saveIn(checkout, item.anchors.map { it.path }.distinct()) }
+        saveIn(checkout, found.third)
         val prompt = ProgressManager.getInstance().runProcessWithProgressSynchronously(
             ThrowableComputable<String?, RuntimeException> { elsewherePrompt(project, viewId) },
             "Reading the code of $viewId", false, project,

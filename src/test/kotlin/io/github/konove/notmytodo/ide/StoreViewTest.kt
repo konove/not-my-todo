@@ -49,8 +49,18 @@ class StoreViewTest : BasePlatformTestCase() {
     fun `test a read a write overtook asks for another`() {
         val ticket = view.startRead()
         view.create(Store.INBOX, Draft("written meanwhile"))
+        val before = view.readAgainCount
         assertFalse(view.offer(ticket, StoreView.Snapshot(emptyList(), emptyMap())))
-        assertTrue(view.readAgainAsked)
+        assertEquals(before + 1, view.readAgainCount)
+    }
+
+    fun `test a read a newer read overtook asks for nothing`() {
+        val first = view.startRead()
+        val second = view.startRead()
+        val before = view.readAgainCount
+        assertTrue(view.offer(second, StoreView.Snapshot(emptyList(), emptyMap())))
+        assertFalse(view.offer(first, StoreView.Snapshot(emptyList(), emptyMap())))
+        assertEquals(before, view.readAgainCount)
     }
 
     fun `test the same id in two projects names two items`() {

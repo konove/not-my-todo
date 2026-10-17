@@ -53,10 +53,11 @@ class CheckoutsTest : BasePlatformTestCase() {
         val document = FileDocumentManager.getInstance().getDocument(vf)!!
         WriteCommandAction.runWriteCommandAction(project) { document.setText("new\n") }
         ItemActions.saveIn(dir, listOf("a.txt"))
-        // On a cold IDE the write to the disk was seen to trail the save by a moment.
-        val end = System.currentTimeMillis() + 5000
-        while (Files.readString(file) != "new\n" && System.currentTimeMillis() < end) Thread.sleep(20)
-        assertEquals("new\n", Files.readString(file))
+        assertFalse(FileDocumentManager.getInstance().isDocumentUnsaved(document))
+        // The write to the disk trails the save, so the prompt is built from what the editor shows.
+        val stores = StoreService.getInstance().store
+        stores.dir("elsewhere").writeRecord(ProjectRecord("elsewhere", checkouts = listOf(dir.toString())))
+        assertEquals("new\n", StoreView.getInstance(project).readText("elsewhere", "a.txt"))
     }
 
     fun `test an item with a checkout here asks for the window of its checkout`() {

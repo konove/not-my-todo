@@ -1,10 +1,13 @@
 package io.github.konove.notmytodo.ide
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import io.github.konove.notmytodo.model.Links
 import io.github.konove.notmytodo.model.TodoItem
 import io.github.konove.notmytodo.store.Draft
@@ -40,6 +43,8 @@ class StoreView(private val project: Project) {
     private val lock = Any()
     private var issued = 0L
     private var assigned = 0L
+    /** The ticket the last write took: a read begun before it is stale about the project the write patched. */
+    private var patchedAt = 0L
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
     private val waiting = AtomicBoolean()
 
@@ -90,25 +95,30 @@ class StoreView(private val project: Project) {
 
     /** Takes [read], begun as [ticket], unless a later read or a write has put its own in the meantime. */
     internal fun offer(ticket: Long, read: Snapshot): Boolean {
+        var again = false
         val taken = synchronized(lock) {
-            if (ticket <= assigned) false else {
+            if (ticket <= assigned) {
+                // Refused for a newer read has nothing to add; refused for a write is read again.
+                again = patchedAt > ticket
+                false
+            } else {
                 assigned = ticket
                 snapshot = read
                 true
             }
         }
         // A write patched one project in the meantime; what this read saw of the others is read again.
-        if (!taken) readAgain()
+        if (again) readAgain()
         return taken
     }
 
-    /** Set once a dropped read asked for another; for the tests. */
+    /** How many times a dropped read asked for another; for the tests. */
     @Volatile
-    internal var readAgainAsked = false
+    internal var readAgainCount = 0
         private set
 
     private fun readAgain() {
-        readAgainAsked = true
+        readAgainCount++
         loadLater()
     }
 
@@ -140,6 +150,7 @@ class StoreView(private val project: Project) {
         synchronized(lock) {
             issued++
             assigned = issued
+            patchedAt = issued
             val now = snapshot
             val records = if (record == null) now.records else now.records.filter { it.key != key } + record
             snapshot = Snapshot(records, now.items + (key to items))
@@ -259,6 +270,11 @@ class StoreView(private val project: Project) {
         } catch (_: InvalidPathException) {
             null
         } ?: return null
+        // What the editor shows: a save reaches the disk asynchronously, so the disk may still hold the text from before it.
+        val shown = ReadAction.compute<String?, RuntimeException> {
+            LocalFileSystem.getInstance().findFileByNioFile(file)?.let { FileDocumentManager.getInstance().getCachedDocument(it)?.text }
+        }
+        if (shown != null) return shown
         return try {
             if (Files.isRegularFile(file)) Files.readString(file) else null
         } catch (_: IOException) {
