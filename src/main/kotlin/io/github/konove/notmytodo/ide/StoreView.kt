@@ -32,10 +32,14 @@ enum class ProjectScope(val label: String) { THIS_PROJECT("This project"), INBOX
 @Service(Service.Level.PROJECT)
 class StoreView(private val project: Project) {
     /** The records of every project, and the items of every one but this. */
-    private class Snapshot(val records: List<ProjectRecord>, val items: Map<String, List<TodoItem>>)
+    internal class Snapshot(val records: List<ProjectRecord>, val items: Map<String, List<TodoItem>>)
 
     @Volatile
     private var snapshot = Snapshot(emptyList(), emptyMap())
+    /** Counts the reads begun and the patches made; [assigned] is the last that put its result in [snapshot]. Held only to compare and assign. */
+    private val lock = Any()
+    private var issued = 0L
+    private var assigned = 0L
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
     private val waiting = AtomicBoolean()
 
@@ -57,19 +61,77 @@ class StoreView(private val project: Project) {
         listeners -= l
     }
 
-    /** Reads every other project again, and tells the listeners. A store that cannot be listed leaves what was read before. */
+    /**
+     * Reads every other project again, and tells the listeners. A store that cannot be listed leaves what was read
+     * before, and so does a project whose items cannot be read. A read that a later read or a write overtook is dropped.
+     */
     fun load() {
-        try {
-            val records = stores.projects()
-            val mine = home
-            snapshot = Snapshot(records, records.filter { it.key != mine }.associate { it.key to stores.items(it.key).items })
+        val ticket = startRead()
+        val read = try {
+            read()
         } catch (e: IOException) {
             logger<StoreView>().warn("The store's projects cannot be read", e)
+            null
         } catch (e: UncheckedIOException) {
             logger<StoreView>().warn("The store's projects cannot be read", e)
+            null
         } catch (e: StoreException) {
             logger<StoreView>().warn("The store's projects cannot be read", e)
+            null
         }
+        if (read == null) {
+            tell()
+            return
+        }
+        if (offer(ticket, read)) tell()
+    }
+
+    internal fun startRead(): Long = synchronized(lock) { ++issued }
+
+    /** Takes [read], begun as [ticket], unless a later read or a write has put its own in the meantime. */
+    internal fun offer(ticket: Long, read: Snapshot): Boolean = synchronized(lock) {
+        if (ticket <= assigned) return false
+        assigned = ticket
+        snapshot = read
+        true
+    }
+
+    private fun read(): Snapshot {
+        val records = stores.projects()
+        val mine = home
+        val before = snapshot.items
+        val items = HashMap<String, List<TodoItem>>()
+        for (r in records) {
+            if (r.key == mine) continue
+            try {
+                items[r.key] = stores.items(r.key).items
+            } catch (e: IOException) {
+                logger<StoreView>().warn("The items of project ${r.key} cannot be read", e)
+                before[r.key]?.let { items[r.key] = it }
+            } catch (e: UncheckedIOException) {
+                logger<StoreView>().warn("The items of project ${r.key} cannot be read", e)
+                before[r.key]?.let { items[r.key] = it }
+            } catch (e: StoreException) {
+                logger<StoreView>().warn("The items of project ${r.key} cannot be read", e)
+                before[r.key]?.let { items[r.key] = it }
+            }
+        }
+        return Snapshot(records, items)
+    }
+
+    /** After a write to project [key]: its entry, from the items the write left in memory, and the listeners told. Reads no file but [record]'s. */
+    private fun patch(key: String, items: List<TodoItem>, record: ProjectRecord? = null) {
+        synchronized(lock) {
+            issued++
+            assigned = issued
+            val now = snapshot
+            val records = if (record == null) now.records else now.records.filter { it.key != key } + record
+            snapshot = Snapshot(records, now.items + (key to items))
+        }
+        tell()
+    }
+
+    private fun tell() {
         for (listener in listeners) {
             try {
                 listener()
@@ -101,7 +163,7 @@ class StoreView(private val project: Project) {
         return when (scope) {
             ProjectScope.THIS_PROJECT -> own
             ProjectScope.INBOX -> if (mine == Store.INBOX) own else of(Store.INBOX)
-            ProjectScope.ALL -> own + snapshot.items.keys.sorted().flatMap(::of)
+            ProjectScope.ALL -> own + snapshot.items.keys.filter { it != mine }.sorted().flatMap(::of)
         }
     }
 
@@ -126,14 +188,14 @@ class StoreView(private val project: Project) {
         val t = target(viewId) ?: throw StoreException("there is no item with id $viewId")
         val saved = t.items.update(t.id, change = change)
         // The snapshot would show the item as it was until the watcher reported the write.
-        if (!t.home) load()
+        if (!t.home) patch(t.key, t.items.items)
         return ViewIds.shown(saved, t.key, home)
     }
 
     fun delete(viewId: String) {
         val t = target(viewId) ?: throw StoreException("there is no item with id $viewId")
         t.items.delete(t.id)
-        if (!t.home) load()
+        if (!t.home) patch(t.key, t.items.items)
     }
 
     /** Makes an item in project [key]. Inbox is made when there is none; another project must be there. */
@@ -141,8 +203,9 @@ class StoreView(private val project: Project) {
         val own = service.store
         if (key == own.key) return own.create(draft)
         if (key == Store.INBOX) stores.inbox() else if (stores.project(key) == null) throw StoreException("there is no project $key")
-        val made = stores.items(key).create(draft)
-        load()
+        val into = stores.items(key)
+        val made = into.create(draft)
+        patch(key, into.items, stores.project(key))
         return ViewIds.shown(made, key, own.key)
     }
 

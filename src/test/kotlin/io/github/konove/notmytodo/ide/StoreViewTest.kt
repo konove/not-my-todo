@@ -133,4 +133,36 @@ class StoreViewTest : BasePlatformTestCase() {
             view.removeListener(listener)
         }
     }
+
+    fun `test a write to another project is seen at once and tells the listeners`() {
+        val infra = other("infra")
+        infra.create(Draft("one"))
+        view.load()
+        val told = AtomicInteger()
+        val listener: () -> Unit = { told.incrementAndGet() }
+        view.addListener(listener)
+        try {
+            view.create("infra", Draft("two"))
+            assertEquals(1, told.get())
+            assertEquals("two", view.find("infra/T-2")!!.title)
+            view.delete("infra/T-1")
+            assertNull(view.find("infra/T-1"))
+            assertEquals(2, told.get())
+            view.create(Store.INBOX, Draft("note"))
+            assertEquals(listOf(view.home, Store.INBOX, "infra"), view.keys())
+        } finally {
+            view.removeListener(listener)
+        }
+    }
+
+    fun `test a read that began before a write does not overwrite it`() {
+        other("infra")
+        view.load()
+        val ticket = view.startRead()
+        view.create("infra", Draft("newer"))
+        assertFalse(view.offer(ticket, StoreView.Snapshot(emptyList(), emptyMap())))
+        assertEquals("newer", view.find("infra/T-1")!!.title)
+        assertTrue(view.offer(view.startRead(), StoreView.Snapshot(emptyList(), emptyMap())))
+        assertNull(view.find("infra/T-1"))
+    }
 }

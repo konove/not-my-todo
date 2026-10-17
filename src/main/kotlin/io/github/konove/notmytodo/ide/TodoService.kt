@@ -93,8 +93,11 @@ class TodoService(private val project: Project) : Disposable {
         // The application's bus: this topic is not passed on to the projects' buses.
         val app = ApplicationManager.getApplication().messageBus.connect(this)
         app.subscribe(ApplicationActivationListener.TOPIC, object : ApplicationActivationListener {
-            // What the watcher missed is read when the user comes back to the IDE, say from the terminal an agent ran in.
-            override fun applicationActivated(ideFrame: IdeFrame) = reloadLater()
+            // What the watcher missed, in this project or another, is read when the user comes back to the IDE, say from the terminal an agent ran in.
+            override fun applicationActivated(ideFrame: IdeFrame) {
+                reloadLater()
+                StoreView.getInstance(project).loadLater()
+            }
         })
     }
 
