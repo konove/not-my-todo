@@ -145,17 +145,21 @@ class StoreViewTest : BasePlatformTestCase() {
     }
 
     fun `test reads asked for while one is waiting are one read`() {
-        val told = AtomicInteger()
-        val listener: () -> Unit = { told.incrementAndGet() }
-        view.addListener(listener)
+        val queued = java.util.ArrayDeque<Runnable>()
+        val before = view.schedule
+        view.schedule = { queued.add(it) }
         try {
+            // A read asked for by an earlier test may still be waiting to start; once it has, the next ask is queued here.
+            assertTrue(waitFor(5000) { view.loadLater(); queued.size == 1 })
             repeat(20) { view.loadLater() }
-            assertTrue(waitFor(5000) { told.get() > 0 })
-            Thread.sleep(200)
-            // A read may start while the asking goes on, and a later ask then waits for one more: never one each.
-            assertTrue("read ${told.get()} times", told.get() < 20)
+            assertEquals(1, queued.size)
+            queued.poll().run()
+            view.loadLater()
+            assertEquals(1, queued.size)
         } finally {
-            view.removeListener(listener)
+            view.schedule = before
+            // What is left waiting would keep every later ask from being made.
+            while (queued.isNotEmpty()) queued.poll().run()
         }
     }
 

@@ -1,7 +1,7 @@
 package io.github.konove.notmytodo.ide
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -168,13 +168,16 @@ class StoreView(private val project: Project) {
         }
     }
 
+    /** Where [loadLater] runs its read: a pooled thread. A test puts the reads in a queue, to count them. */
+    internal var schedule: (Runnable) -> Unit = { ApplicationManager.getApplication().executeOnPooledThread(it) }
+
     /** [load] on a pooled thread. While one waits to start, asking again asks for nothing more: it will read what the others would. */
     fun loadLater() {
         if (!waiting.compareAndSet(false, true)) return
-        ApplicationManager.getApplication().executeOnPooledThread {
+        schedule(Runnable {
             waiting.set(false)
             if (!project.isDisposed) load()
-        }
+        })
     }
 
     /** Every project's key: this one, Inbox, then the others by key. */
@@ -288,7 +291,7 @@ class StoreView(private val project: Project) {
             null
         } ?: return null
         // What the editor shows: a save reaches the disk asynchronously, so the disk may still hold the text from before it.
-        val shown = ReadAction.compute<String?, RuntimeException> {
+        val shown = runReadActionBlocking {
             LocalFileSystem.getInstance().findFileByNioFile(file)?.let { FileDocumentManager.getInstance().getCachedDocument(it)?.text }
         }
         if (shown != null) return shown
