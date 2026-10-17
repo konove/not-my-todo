@@ -112,6 +112,18 @@ object ItemActions {
             Messages.showInfoMessage(project, "$key has no checkout on this machine, so there is no folder to start Claude Code in.", "Not My TODO")
             return
         }
+        // The prompt names the item by its bare id, which the session's server looks up in the project it takes the folder for.
+        val sharing = view.sharing(key, checkout)
+        if (sharing.isNotEmpty()) {
+            val also = sharing.joinToString(" and ")
+            Messages.showInfoMessage(
+                project,
+                "$checkout is a checkout of both $key and $also, so Claude Code started there could take the other project's item " +
+                    "of the same id for this one. Drag $viewId to a Claude Code session instead: the prompt it carries names it in full.",
+                "Not My TODO",
+            )
+            return
+        }
         if (!ClaudeLauncher.isTerminalAvailable()) {
             Messages.showInfoMessage(project, "Starting Claude Code in $checkout needs the Terminal plugin.", "Not My TODO")
             return

@@ -222,6 +222,18 @@ class StoreView(private val project: Project) {
         return record.checkouts.mapNotNull { runCatching { Path.of(it) }.getOrNull() }.firstOrNull { Files.isDirectory(it) }
     }
 
+    /**
+     * The projects other than [key] whose records list [folder] as a checkout too. A Claude Code started there takes one
+     * of them for its own, which may not be [key]. Reads only the snapshot.
+     */
+    fun sharing(key: String, folder: Path): List<String> {
+        fun same(path: Path) = path.toAbsolutePath().normalize()
+        val wanted = same(folder)
+        return snapshot.records.filter { r ->
+            r.key != key && r.checkouts.any { c -> runCatching { same(Path.of(c)) }.getOrNull() == wanted }
+        }.map { it.key }.sorted()
+    }
+
     /** A file of project [key], by the path its anchors have; another project's is read from its checkout. */
     fun readText(key: String, relativePath: String): String? {
         if (key == home) return service.readText(relativePath)

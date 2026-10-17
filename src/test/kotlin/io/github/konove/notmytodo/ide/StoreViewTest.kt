@@ -165,4 +165,16 @@ class StoreViewTest : BasePlatformTestCase() {
         assertTrue(view.offer(view.startRead(), StoreView.Snapshot(emptyList(), emptyMap())))
         assertNull(view.find("infra/T-1"))
     }
+
+    fun `test the projects that list a checkout too are found, however the path is written`() {
+        val shared = Files.createTempDirectory("nmt-checkout")
+        val own = Files.createTempDirectory("nmt-checkout")
+        other("infra", shared)
+        other("ops", shared.resolve("sub").resolve(".."))
+        other("web", own)
+        view.load()
+        assertEquals(listOf("ops"), view.sharing("infra", shared))
+        assertEquals(listOf("infra"), view.sharing("ops", shared))
+        assertTrue(view.sharing("web", own).isEmpty())
+    }
 }
