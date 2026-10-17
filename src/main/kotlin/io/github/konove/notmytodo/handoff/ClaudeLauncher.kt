@@ -4,7 +4,7 @@ import com.intellij.openapi.project.Project
 import io.github.konove.notmytodo.ide.Plugins
 import io.github.konove.notmytodo.ide.StoreServerHint
 import io.github.konove.notmytodo.settings.TodoSettings
-import org.jetbrains.plugins.terminal.TerminalToolWindowManager
+import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -52,9 +52,12 @@ object ClaudeLauncher {
     /** Kept apart so terminal classes load only when the terminal plugin is present. */
     private object TerminalRunner {
         fun run(project: Project, dir: String?, command: String) {
-            val widget = TerminalToolWindowManager.getInstance(project)
-                .createShellWidget(dir, "Not My TODO", true, true)
-            widget.sendCommandToExecute(command)
+            val tab = TerminalToolWindowTabsManager.getInstance(project).createTabBuilder()
+                .workingDirectory(dir)
+                .tabName("Not My TODO")
+                .requestFocus(true)
+                .createTab()
+            tab.view.createSendTextBuilder().shouldExecute().send(command)
         }
     }
 }
