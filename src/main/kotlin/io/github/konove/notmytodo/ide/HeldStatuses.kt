@@ -26,12 +26,15 @@ class HeldStatuses : PersistentStateComponent<HeldStatuses.Values> {
         current = state
     }
 
-    /** By item id: the status the file has, and the one that was shown in its place. */
-    fun held(): Map<String, Pair<Status, Status>> = current.statuses.mapNotNull { (id, text) ->
+    /** What 0.2 held for an item: the status the file has, the one shown in its place, and when it was set, when that can be read. */
+    data class Held(val from: Status, val to: Status, val time: String?)
+
+    /** By item id: what was held for it. */
+    fun held(): Map<String, Held> = current.statuses.mapNotNull { (id, text) ->
         val parts = text.split(' ')
         val from = parts.getOrNull(0)?.let(Status::fromJson)
         val to = parts.getOrNull(1)?.let(Status::fromJson)
-        if (from == null || to == null) null else id to (from to to)
+        if (from == null || to == null) null else id to Held(from, to, parts.getOrNull(2)?.takeIf { it.isNotBlank() })
     }.toMap()
 
     fun clear() {

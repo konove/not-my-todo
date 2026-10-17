@@ -2,6 +2,7 @@ package io.github.konove.notmytodo.ide
 
 import io.github.konove.notmytodo.model.Status
 import io.github.konove.notmytodo.store.Draft
+import io.github.konove.notmytodo.store.Import
 import io.github.konove.notmytodo.store.Store
 import io.github.konove.notmytodo.store.StoreException
 import org.junit.Assert.assertEquals
@@ -66,7 +67,7 @@ class ProjectOpenerTest {
     fun `a project is made for a folder and its items file is imported, with the statuses the IDE held`() {
         val folder = repo("app", "git@github.com:me/app.git")
         val file = itemsFile(folder)
-        val opened = opener.open(folder, file, mapOf("T-2" to (Status.FIXED to Status.DONE)))
+        val opened = opener.open(folder, file, mapOf("T-2" to HeldStatuses.Held(Status.FIXED, Status.DONE, null)))
         assertEquals(ProjectOpener.Legacy.Imported(file, 2), opened.legacy)
         assertEquals("app", opened.items.key)
         assertEquals(listOf("T-2", "T-5"), opened.items.items.map { it.id })
@@ -78,7 +79,7 @@ class ProjectOpenerTest {
     @Test
     fun `a held status the file has moved on from is not applied`() {
         val folder = repo("moved")
-        val opened = opener.open(folder, itemsFile(folder), mapOf("T-2" to (Status.OPEN to Status.DONE)))
+        val opened = opener.open(folder, itemsFile(folder), mapOf("T-2" to HeldStatuses.Held(Status.OPEN, Status.DONE, null)))
         assertEquals(Status.FIXED, opened.items.find("T-2")!!.status)
     }
 
@@ -110,7 +111,7 @@ class ProjectOpenerTest {
         opener.open(folder, file)
         Files.writeString(file, "{ broken")
         val again = opener.open(folder, file)
-        assertNull(again.legacy)
+        assertTrue(again.legacy is ProjectOpener.Legacy.Changed)
         assertEquals(listOf("T-2", "T-5"), again.items.items.map { it.id })
     }
 
@@ -159,6 +160,47 @@ class ProjectOpenerTest {
         val opened = opener.open(home, other)
         assertEquals(ProjectOpener.Legacy.Elsewhere(other, first.toString()), opened.legacy)
         assertEquals(listOf("two", "five"), opened.items.items.map { it.title })
+    }
+
+    @Test
+    fun `a held status brings the time it was set as the item's updated`() {
+        val folder = repo("timed")
+        val file = itemsFile(folder)
+        val opened = opener.open(folder, file, mapOf("T-2" to HeldStatuses.Held(Status.FIXED, Status.DONE, "2026-10-05T10:00:00Z")))
+        assertEquals("2026-10-05T10:00:00Z", opened.items.find("T-2")!!.updated)
+    }
+
+    @Test
+    fun `a kept file that changed after its import is said, and not read`() {
+        val folder = repo("kept2")
+        val file = itemsFile(folder)
+        opener.open(folder, file)
+        val changed = json.replace("\"five\"", "\"five, edited\"")
+        Files.writeString(file, changed)
+        val opened = opener.open(folder, file)
+        assertEquals(ProjectOpener.Legacy.Changed(file, Import.sha256(changed.toByteArray())), opened.legacy)
+        assertEquals("five", opened.items.find("T-5")!!.title)
+    }
+
+    @Test
+    fun `a kept file that did not change says nothing`() {
+        val folder = repo("same")
+        val file = itemsFile(folder)
+        opener.open(folder, file)
+        assertNull(opener.open(folder, file).legacy)
+    }
+
+    @Test
+    fun `a clash can be imported with new ids after the project's last item`() {
+        val folder = repo("clash2")
+        val file = itemsFile(folder)
+        val key = store.ensure(store.resolve(folder)).record.key
+        store.items(key).create(Draft("one"))
+        store.items(key).create(Draft("two"))
+        assertEquals(ProjectOpener.Legacy.Clash(file, listOf("T-2")), opener.open(folder, file).legacy)
+        assertEquals(ProjectOpener.Legacy.Imported(file, 2), opener.importWithNewIds(folder, file))
+        assertEquals(listOf("T-1", "T-2", "T-3", "T-4"), store.items(key).items.map { it.id })
+        assertEquals("src/a.txt", store.items(key).find("T-4")!!.anchors.single().path)
     }
 
     @Test

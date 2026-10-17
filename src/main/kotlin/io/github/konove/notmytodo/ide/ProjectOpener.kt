@@ -32,6 +32,9 @@ class ProjectOpener(private val store: Store) {
 
         /** The project holds the items of another file already, such as the one of another clone. */
         data class Elsewhere(override val file: Path, val other: String) : Legacy
+
+        /** The file the project's items came from has changed since: the store does not read it. [sha256] is what it holds now. */
+        data class Changed(override val file: Path, val sha256: String) : Legacy
     }
 
     /**
@@ -41,11 +44,11 @@ class ProjectOpener(private val store: Store) {
     class Opened(val items: ItemStore, val root: Path, val legacy: Legacy?, val pending: Resolution? = null)
 
     /**
-     * Opens the project of [base], importing [legacy] when it is there. [held] holds the statuses 0.2
-     * showed in place of the file's, by item id: the file's status and the one shown. Throws
+     * Opens the project of [base], importing [legacy] when it is there. [held] holds what 0.2 showed in
+     * place of the file's statuses, by item id. Throws
      * [StoreException] when the project cannot be opened.
      */
-    fun open(base: Path, legacy: Path, held: Map<String, Pair<Status, Status>> = emptyMap()): Opened {
+    fun open(base: Path, legacy: Path, held: Map<String, HeldStatuses.Held> = emptyMap()): Opened {
         if (!Files.isRegularFile(legacy)) {
             val resolution = store.resolve(base)
             val root = rootOf(resolution, base)
@@ -85,13 +88,13 @@ class ProjectOpener(private val store: Store) {
      * The file is decoded only when it is going to be imported. Once its items are in the store it is
      * no longer read, as the balloon said, so a kept file that broke since does not stop the project opening.
      */
-    private fun importing(resolution: Resolution, base: Path, root: Path, file: Path, held: Map<String, Pair<Status, Status>>): Opened {
+    private fun importing(resolution: Resolution, base: Path, root: Path, file: Path, held: Map<String, HeldStatuses.Held>): Opened {
         val path = file.toAbsolutePath().normalize().toString()
         // A folder of no repository goes into Inbox, whose record says what it holds already.
         val before = resolution.record?.importedFrom ?: if (resolution.root == null) store.inbox().importedFrom else null
         if (before != null || store.projects().any { it.importedFrom?.path == path }) {
             val key = store.ensure(resolution).record.key
-            return Opened(store.items(key), root, before?.let { elsewhere(file, path, it.path, it.sha256) })
+            return Opened(store.items(key), root, before?.let { kept(file, path, it.path, it.sha256) })
         }
         val bytes = try {
             Files.readAllBytes(file)
@@ -104,10 +107,7 @@ class ProjectOpener(private val store: Store) {
             throw StoreException("$file cannot be imported into the store: ${e.message}. Fix it, then press Reload in the Not My TODO window.")
         }
         val record = store.ensure(resolution).record
-        val statuses = read.items.mapNotNull { item ->
-            held[item.id]?.takeIf { it.first == item.status }?.let { item.id to it.second }
-        }.toMap()
-        val legacy = when (val result = Import.run(store, record.key, file, statuses, rebase(base, root))) {
+        val legacy = when (val result = imported(record.key, base, root, file, read.items, held, renumber = false)) {
             is ImportResult.Imported -> Legacy.Imported(file, result.count)
             is ImportResult.Clash -> Legacy.Clash(file, result.ids)
             ImportResult.AlreadyImported -> null
@@ -115,18 +115,58 @@ class ProjectOpener(private val store: Store) {
         return Opened(store.items(record.key), root, legacy)
     }
 
+    /** Runs the import of [file], whose items are [items], with what 0.2 held applied: the status, and the time it was set as `updated`. */
+    private fun imported(
+        key: String, base: Path, root: Path, file: Path, items: List<TodoItem>, held: Map<String, HeldStatuses.Held>, renumber: Boolean,
+    ): ImportResult {
+        // Keyed by the file's own ids: adjust runs before renumbering, as the statuses are looked up.
+        val applied = items.mapNotNull { item -> held[item.id]?.takeIf { it.from == item.status }?.let { item.id to it } }.toMap()
+        val rebased = rebase(base, root)
+        return Import.run(store, key, file, applied.mapValues { it.value.to }, { item ->
+            val time = applied[item.id]?.time
+            rebased(if (time == null) item else item.copy(updated = time))
+        }, renumber)
+    }
+
     /**
-     * [Legacy.Elsewhere] when the project holds the items of [other] and [file] is not a copy of it.
-     * The file is read for its hash only; one that cannot be read is not worth a word.
+     * Imports [legacy] into the project of [base] with new ids after its last item, for a file whose ids the project already
+     * has. Throws [StoreException] when the file cannot be read or the project cannot be made.
      */
-    private fun elsewhere(file: Path, path: String, other: String, sha256: String): Legacy? {
-        if (other == path) return null
+    fun importWithNewIds(base: Path, legacy: Path, held: Map<String, HeldStatuses.Held> = emptyMap()): Legacy = store.lock.withLock {
+        val resolution = store.resolve(base)
+        val root = rootOf(resolution, base)
+        val read = try {
+            TodoJson.decode(Files.readString(legacy))
+        } catch (e: IOException) {
+            throw StoreException("$legacy cannot be read: ${e.message}")
+        } catch (e: TodoFormatException) {
+            throw StoreException("$legacy cannot be imported into the store: ${e.message}")
+        }
+        val key = store.ensure(resolution).record.key
+        when (val result = imported(key, base, root, legacy, read.items, held, renumber = true)) {
+            is ImportResult.Imported -> Legacy.Imported(legacy, result.count)
+            ImportResult.AlreadyImported -> throw StoreException("the items of $legacy are in the store already")
+            is ImportResult.Clash -> throw StoreException("the items of $legacy clash with ${result.ids.joinToString(", ")}")
+        }
+    }
+
+    /**
+     * What to say of [file] when the project already holds the items of [other], with [sha256] the hash of what was imported:
+     * [Legacy.Changed] when [file] is that file and has changed since, [Legacy.Elsewhere] when it is another file and not a
+     * copy of it. The file is read for its hash only; one that cannot be read is not worth a word.
+     */
+    private fun kept(file: Path, path: String, other: String, sha256: String): Legacy? {
         val bytes = try {
             Files.readAllBytes(file)
         } catch (_: IOException) {
             return null
         }
-        return if (Import.sha256(bytes) == sha256) null else Legacy.Elsewhere(file, other)
+        val now = Import.sha256(bytes)
+        return when {
+            now == sha256 -> null
+            other == path -> Legacy.Changed(file, now)
+            else -> Legacy.Elsewhere(file, other)
+        }
     }
 
     companion object {

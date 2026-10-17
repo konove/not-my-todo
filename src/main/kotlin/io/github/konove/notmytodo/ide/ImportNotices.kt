@@ -41,6 +41,11 @@ internal class ImportNotices(private val project: Project) {
                 "Project $key already holds the items moved there from ${legacy.other}.",
                 NotificationType.INFORMATION,
             )
+            is ProjectOpener.Legacy.Changed -> group.createNotification(
+                "The items file of $name changed",
+                "The items file of $name changed after its items were moved to the store. The store does not read it.",
+                NotificationType.INFORMATION,
+            )
         }
         notification.notify(project)
     }
