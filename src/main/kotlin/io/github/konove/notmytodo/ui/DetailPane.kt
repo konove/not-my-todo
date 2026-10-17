@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.util.EditorUtil
+import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -78,12 +79,13 @@ import javax.swing.text.Highlighter
 import javax.swing.text.JTextComponent
 
 /** A filled button with a white icon, for the one action that is the next step. */
-private class PrimaryIconButton(text: String, icon: Icon, action: () -> Unit) : JButton() {
+private class PrimaryIconButton(val caption: String, icon: Icon, action: () -> Unit) : JButton() {
     private val white = IconUtil.colorize(icon, Color.WHITE)
+    private val disabled = IconLoader.getDisabledIcon(white)
 
     init {
-        toolTipText = text
-        getAccessibleContext().accessibleName = text
+        toolTipText = caption
+        getAccessibleContext().accessibleName = caption
         isContentAreaFilled = false
         isBorderPainted = false
         isFocusPainted = false
@@ -97,10 +99,11 @@ private class PrimaryIconButton(text: String, icon: Icon, action: () -> Unit) : 
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             val fill = JBColor(Color(0x3574F0), Color(0x3574F0))
-            g2.color = if (model.isRollover || model.isPressed) fill.darker() else fill
+            g2.color = if (!isEnabled) JBColor.border() else if (model.isRollover || model.isPressed) fill.darker() else fill
             val arc = JBUI.scale(8)
             g2.fillRoundRect(0, 0, width, height, arc, arc)
-            white.paintIcon(this, g2, (width - white.iconWidth) / 2, (height - white.iconHeight) / 2)
+            val shown = if (isEnabled) white else disabled
+            shown.paintIcon(this, g2, (width - shown.iconWidth) / 2, (height - shown.iconHeight) / 2)
         } finally {
             g2.dispose()
         }
@@ -329,6 +332,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
 
     /** Fix starts Claude Code in the item's checkout: an item of a project with none here cannot be fixed from here. */
     internal val fixEnabled: Boolean get() = fixButton.isEnabled
+    internal val fixTooltip: String? get() = fixButton.toolTipText
 
     private fun status(vararg shown: Status): () -> Boolean = { tracked && current?.status in shown }
 
@@ -545,7 +549,7 @@ class DetailPane(private val project: Project) : JPanel(BorderLayout()) {
         fixButton.isVisible = code || item.status == Status.OPEN || item.status == Status.IN_PROGRESS
         val here = code || own || view.checkout(key) != null
         fixButton.isEnabled = here
-        fixButton.toolTipText = if (here) null else "$key has no checkout on this machine, so there is no folder to start Claude Code in"
+        fixButton.toolTipText = if (here) fixButton.caption else "$key has no checkout on this machine, so there is no folder to start Claude Code in"
         codeBox.isVisible = anchor != null
         if (anchor != null) showCode(anchor, PriorityColors.tint(priority))
         deleteToolbar.updateActionsAsync()
