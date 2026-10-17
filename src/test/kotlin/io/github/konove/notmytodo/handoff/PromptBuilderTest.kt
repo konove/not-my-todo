@@ -126,6 +126,16 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `a short prompt for code in another checkout names that checkout`() {
+        val elsewhere = anchored.copy(id = "infra/T-14")
+        val p = PromptBuilder.build(elsewhere, files, "", PromptOptions(short = true, checkoutAt = "/work/infra"))
+        assertTrue(p, p.contains("The paths todo_get returns are relative to the checkout at /work/infra, not to the folder you are in."))
+        // A full prompt has the paths in that checkout already, and a note has no paths.
+        assertFalse(PromptBuilder.build(elsewhere, files, "", PromptOptions(checkoutAt = "/work/infra")).contains("relative to the checkout at"))
+        assertFalse(PromptBuilder.build(elsewhere.copy(anchors = emptyList()), files, "", PromptOptions(short = true, checkoutAt = "/work/infra")).contains("relative to"))
+    }
+
+    @Test
     fun `extra instructions come after done when, and blank ones add nothing`() {
         val p = PromptBuilder.build(anchored, files, "tests pass", PromptOptions(extra = "  Run the linter.\n"))
         assertTrue(p.contains("Done when: tests pass\n\nRun the linter.\n"))

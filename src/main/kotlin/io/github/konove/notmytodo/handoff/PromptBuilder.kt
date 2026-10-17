@@ -16,6 +16,8 @@ import io.github.konove.notmytodo.model.TodoItem
  * that may never reach an agent, where the IDE cannot know that the work has begun.
  * [absentCheckout] is the project the item's code is of when its checkout is not on this machine: the
  * paths are then relative to a folder the agent cannot see, and the prompt says so.
+ * [checkoutAt] is the folder of the checkout the item's code is in when it is not the agent's: a short prompt
+ * names it, since `todo_get` gives the paths relative to it.
  */
 data class PromptOptions(
     val contextLines: Int = 20,
@@ -24,6 +26,7 @@ data class PromptOptions(
     val itemsDir: String = "",
     val claim: Boolean = false,
     val absentCheckout: String = "",
+    val checkoutAt: String = "",
 )
 
 /** Builds the text handed to an agent for one item. The files are the text of each anchored file, by its path. */
@@ -60,6 +63,9 @@ object PromptBuilder {
         if (options.short && !comment) {
             out.append("\nRead the item with the todo_get tool, id \"${item.id}\". ")
             out.append("It returns the details, the comments and the code as it is now.\n")
+            if (options.checkoutAt.isNotBlank() && item.anchors.isNotEmpty()) {
+                out.append("The paths todo_get returns are relative to the checkout at ${options.checkoutAt}, not to the folder you are in.\n")
+            }
         } else {
             if (item.details.isNotBlank()) out.append("\nDetails:\n${item.details.trim()}\n")
             item.toDecide?.let { out.append("\nTo decide:\n${it.trim()}\n") }

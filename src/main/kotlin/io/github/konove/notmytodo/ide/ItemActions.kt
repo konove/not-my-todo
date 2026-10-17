@@ -153,7 +153,8 @@ object ItemActions {
         val options = promptOptions(project).copy(claim = true, itemsDir = view.itemsDir(key).toString())
         if (!ViewIds.isElsewhere(item.id)) return PromptBuilder.build(item, files, "", options)
         // The session it lands on runs in this project, where another project's paths name other files: they are made
-        // those of its checkout, or said to be of one this machine has not.
+        // those of its checkout, or said to be of one this machine has not. A short prompt, whose todo_get gives them
+        // relative, names the checkout.
         val checkout = view.checkout(key) ?: return PromptBuilder.build(item, files, "", options.copy(absentCheckout = key))
         fun inCheckout(path: String) = try {
             checkout.resolve(path).toString()
@@ -161,7 +162,7 @@ object ItemActions {
             path
         }
         val rooted = item.copy(anchors = item.anchors.map { it.copy(path = inCheckout(it.path)) })
-        return PromptBuilder.build(rooted, files.mapKeys { inCheckout(it.key) }, "", options)
+        return PromptBuilder.build(rooted, files.mapKeys { inCheckout(it.key) }, "", options.copy(checkoutAt = checkout.toString()))
     }
 
     /** Where the prompt went, or null when the dialog was cancelled. */
