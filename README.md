@@ -83,7 +83,9 @@ belong to no repository go into the project `inbox`.
 
 The first time the IDE opens a project with 0.3.0, the items of its
 `.todos/items.json` are moved into the store with their ids, and a balloon
-offers to delete the file. The file is never written again.
+offers to delete the file. The file is never written again. If the project
+already has those ids, nothing is moved and the balloon offers to import the
+items with new ids; if the file changes after it was moved, a balloon says so.
 
 ## For agents
 

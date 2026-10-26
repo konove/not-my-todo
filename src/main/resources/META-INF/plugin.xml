@@ -44,12 +44,17 @@
                 Claude Code there, and drag and Copy name it so that any session finds it.</li>
             <li>A plain note can be put into this project, <code>inbox</code> or another;
                 <code>@inbox</code> in the text puts it into <code>inbox</code>.</li>
+            <li>An item can be moved to another project or to <code>inbox</code> from the detail pane, with
+                its parts; a balloon gives its new id.</li>
             <li>The first time a project is opened, the items of its <code>.todos/items.json</code> are moved
                 into the store with their ids, and a balloon offers to delete the file. The file is never
-                written again.</li>
+                written again. If the project already has those ids, nothing is moved and the balloon
+                offers to import the items with new ids; if the file changes after it was moved, a balloon
+                says so.</li>
             <li>The todo tools come from the notmytodo-store server, which every Claude Code session starts,
                 in any folder, with or without the IDE. The IDE's MCP server no longer serves them; a balloon
-                says how to install the server when Claude Code lacks it.</li>
+                says how to install the server when Claude Code lacks it, and the IDE asks again when you
+                come back to it.</li>
             <li>Changes an agent makes outside the IDE show at once.</li>
             <li>Accepting a fix is written at once: there is no file in the repository to keep it out of.</li>
             <li>The settings show the store's folder and the project's key, remotes and checkouts; the key
