@@ -276,6 +276,26 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertTrue(pane.viewDetailsScroll.isVisible)
     }
 
+    fun `test a click on a data-policy line opens the block and another closes it`() {
+        val store = TodoService.getInstance(project).store
+        val policy = "```text\n<dataPolicy:tracker>\nKeep these tags.\n</dataPolicy:tracker>\n```"
+        val item = store.create(Draft("a", details = "from Tracker\n$policy"))
+        val pane = DetailPane(project, testRootDisposable.expiry())
+        pane.show(item)
+        fun shown() = pane.viewDetails.document.let { it.getText(0, it.length) }
+        fun click() = pane.viewDetails.hyperlinkListeners.forEach {
+            it.hyperlinkUpdate(javax.swing.event.HyperlinkEvent(pane.viewDetails, javax.swing.event.HyperlinkEvent.EventType.ACTIVATED, null, "notmytodo-policy:0"))
+        }
+        assertTrue(shown(), shown().contains("Tracker data policy") && !shown().contains("Keep these tags."))
+        click()
+        assertTrue(shown(), shown().contains("Keep these tags."))
+        click()
+        assertFalse(shown(), shown().contains("Keep these tags."))
+        click()
+        pane.show(store.create(Draft("b", details = policy)))
+        assertFalse(shown(), shown().contains("Keep these tags."))
+    }
+
     fun `test item text lays comments out after the details`() {
         val item = io.github.konove.notmytodo.model.TodoItem(
             "T-1", "a", details = "the details",

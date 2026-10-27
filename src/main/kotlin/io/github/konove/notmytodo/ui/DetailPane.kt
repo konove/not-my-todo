@@ -89,6 +89,7 @@ import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import javax.swing.event.HyperlinkEvent
 import javax.swing.text.Highlighter
 import javax.swing.text.JTextComponent
 
@@ -332,7 +333,11 @@ class DetailPane(
         isEditable = false
         isOpaque = false
         border = null
-        addHyperlinkListener(BrowserHyperlinkListener.INSTANCE)
+        addHyperlinkListener { e ->
+            val index = Markdown.Folds.index(e.description)
+            if (index == null) BrowserHyperlinkListener.INSTANCE.hyperlinkUpdate(e)
+            else if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) togglePolicy(index, e.sourceElement?.startOffset ?: 0)
+        }
     }
     internal val viewDetailsScroll = ScrollPaneFactory.createScrollPane(viewDetails, true).apply {
         isOpaque = false
@@ -341,6 +346,9 @@ class DetailPane(
         preferredSize = JBUI.size(200, 60)
     }
     private var shownDetails: String? = null
+    /** The data-policy blocks of the shown item that are open, and where the link was that opened or closed one last. */
+    private var openPolicies = emptySet<Int>()
+    private var policyAt: Int? = null
     private var editing = false
     private lateinit var viewRows: List<Row>
     private lateinit var editRows: List<Row>
@@ -614,6 +622,7 @@ class DetailPane(
         if (shown == null) {
             editing = false
             anchorIndex = 0
+            openPolicies = emptySet()
         }
         anchorIndex = anchorIndex.coerceIn(0, maxOf(0, item.anchors.lastIndex))
         if (shown == null || titleField.text == shown.title) titleField.text = item.title
@@ -643,13 +652,16 @@ class DetailPane(
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
         val fixes = project.service<FixCommits>()
         // The fixing commit is looked for in this checkout's git, which knows nothing of another project's commits.
-        val text = ItemText.html(if (own) fixes.shown(item) else item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()))
+        val text = ItemText.html(if (own) fixes.shown(item) else item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()), open = openPolicies)
         // The commit that fixed it is looked up in the background and shown when it is found.
         if (own && fixes.derives(item)) fixes.refreshLater(expired) { if (current === item) show(item) }
+        val at = policyAt
+        policyAt = null
         if (text != shownDetails) {
             shownDetails = text
             viewDetails.text = text
-            viewDetails.caretPosition = 0
+            // Opening or closing a block keeps its line in view; the text before it is the same.
+            viewDetails.caretPosition = at?.coerceIn(0, viewDetails.document.length) ?: 0
         }
         val strip = if (code) listOf(Chips.codeComment) else Chips.strip(item, links.isBlocked(item), priority)
         if (strip != shownStrip) {
@@ -677,6 +689,14 @@ class DetailPane(
         if (anchor != null) showCode(anchor, PriorityColors.tint(priority), if (own || code) null else read?.text, own || code)
         deleteToolbar.updateActionsAsync()
         showMode()
+    }
+
+    /** Opens or closes the data-policy block [index], whose line starts at [offset] of the text shown. */
+    private fun togglePolicy(index: Int, offset: Int) {
+        val item = current ?: return
+        openPolicies = if (index in openPolicies) openPolicies - index else openPolicies + index
+        policyAt = offset
+        show(item)
     }
 
     /** Asks for the checkout of [key] and the file at [path] on a pooled thread, and shows [item] again when they are read. */

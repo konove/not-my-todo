@@ -17,14 +17,80 @@ import java.time.format.DateTimeParseException
 /** Markdown, as agents and I write it in an item's details, to HTML a Swing text pane can show. */
 object Markdown {
     private val flavour = GFMFlavourDescriptor()
+    private val policyTag = Regex("^\\s*<data(?:Source|Policy):([^>\\s]+)>")
 
     fun html(text: String): String = "<html><body>" + body(text) + "</body></html>"
 
-    /** The HTML of [text] without the tags around it, to put several texts in one page. */
-    fun body(text: String): String {
+    /**
+     * The HTML of [text] without the tags around it, to put several texts in one page.
+     * With [folds], each data-policy block is shown as one line that opens it.
+     */
+    fun body(text: String, folds: Folds? = null): String {
+        if (folds == null) return render(text)
+        val lines = text.lines()
+        val out = StringBuilder()
+        var from = 0
+        for (block in policyBlocks(lines)) {
+            out.append(render(lines.subList(from, block.first).joinToString("\n")))
+            out.append(folds.fold(policyName(lines[block.first + 1]), render(lines.slice(block).joinToString("\n"))))
+            from = block.last + 1
+        }
+        return out.append(render(lines.subList(from, lines.size).joinToString("\n"))).toString()
+    }
+
+    private fun render(text: String): String {
+        if (text.isBlank()) return ""
         val source = keepLineBreaks(text)
         val tree = MarkdownParser(flavour, true, CancellationToken.NonCancellable).buildMarkdownTreeFromString(source as CharSequence)
         return HtmlGenerator(source, tree, flavour).generateHtml().removeSurrounding("<body>", "</body>")
+    }
+
+    /**
+     * The code fences, from the opening line to the closing one, whose first line is a `<dataSource:…>` or
+     * `<dataPolicy:…>` tag: the wrapper some MCP servers put around their data and ask to keep with it, about 1 KB each time.
+     */
+    private fun policyBlocks(lines: List<String>): List<IntRange> {
+        val blocks = ArrayList<IntRange>()
+        var open = -1
+        lines.forEachIndexed { index, line ->
+            if (!isFence(line)) return@forEachIndexed
+            if (open < 0) {
+                open = index
+                return@forEachIndexed
+            }
+            if (open + 1 < index && policyTag.containsMatchIn(lines[open + 1])) blocks += open..index
+            open = -1
+        }
+        return blocks
+    }
+
+    /** Chat for `<dataSource:chat>`. */
+    private fun policyName(line: String): String =
+        policyTag.find(line)!!.groupValues[1].replaceFirstChar { it.uppercaseChar() }
+
+    private fun isFence(line: String): Boolean = line.trimStart().let { it.startsWith("```") || it.startsWith("~~~") }
+
+    /**
+     * Numbers the data-policy blocks of one page in the order they are shown and opens those in [open].
+     * The line of each is a link to [SCHEME] and its number, which the pane takes to open or close it.
+     */
+    class Folds(private val open: Set<Int>, private val grey: String) {
+        private var next = 0
+
+        internal fun fold(name: String, block: String): String {
+            val index = next++
+            val shown = index in open
+            val mark = if (shown) "▾" else "▸"
+            val line = "<p><a href=\"$SCHEME$index\"><font color=\"$grey\">$mark ${StringUtil.escapeXmlEntities(name)} data policy</font></a></p>"
+            return if (shown) line + block else line
+        }
+
+        companion object {
+            const val SCHEME = "notmytodo-policy:"
+
+            /** The number of the block a link opens or closes, or null for any other link. */
+            fun index(href: String?): Int? = href?.takeIf { it.startsWith(SCHEME) }?.removePrefix(SCHEME)?.toIntOrNull()
+        }
     }
 
     /**
@@ -48,19 +114,23 @@ object Markdown {
 object ItemText {
     private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
-    /** [grey] is the HTML colour of what is said about a comment, as against what the comment says. */
-    fun html(item: TodoItem, zone: ZoneId = ZoneId.systemDefault(), grey: String = "#6C707E"): String {
+    /**
+     * [grey] is the HTML colour of what is said about a comment, as against what the comment says.
+     * [open] are the numbers of the data-policy blocks shown in full, counted through the whole page.
+     */
+    fun html(item: TodoItem, zone: ZoneId = ZoneId.systemDefault(), grey: String = "#6C707E", open: Set<Int> = emptySet()): String {
+        val folds = Markdown.Folds(open, grey)
         val out = StringBuilder("<html><body>")
         item.toDecide?.let {
             val head = if (item.needsDecision) "To decide" else "Was to decide"
             out.append("<p><font color=\"$grey\"><b>$head</b></font></p>")
-            out.append(Markdown.body(it))
+            out.append(Markdown.body(it, folds))
         }
         if (item.decisions.isNotEmpty()) {
             val gap = if (item.toDecide != null) 14 else 0
             out.append("<p style=\"margin-top: ${gap}px\"><font color=\"$grey\"><b>Decided · ${item.decisions.size}</b></font></p>")
         }
-        item.decisions.forEach { decision(out, it, zone, grey) }
+        item.decisions.forEach { decision(out, it, zone, grey, folds) }
         val decided = item.toDecide != null || item.decisions.isNotEmpty()
         if (decided && (item.source != null || item.movedFrom != null)) out.append("<p style=\"margin-top: 14px\"></p>")
         item.source?.let { out.append("<p><font color=\"$grey\">From ${StringUtil.escapeXmlEntities(it)}</font></p>") }
@@ -69,12 +139,12 @@ object ItemText {
             val commit = item.fixedIn?.let { " in ${StringUtil.escapeXmlEntities(it)}" }.orEmpty()
             val head = if (item.status == Status.WONT_FIX) "Closed" else "Fixed"
             out.append("<p><font color=\"$grey\"><b>$head$commit</b></font></p>")
-            item.resolution?.let { out.append(Markdown.body(it)) }
+            item.resolution?.let { out.append(Markdown.body(it, folds)) }
         }
         val above = decided || item.source != null || item.movedFrom != null || item.fixedIn != null || item.resolution != null
         if (item.details.isNotBlank()) {
             if (above) out.append("<p style=\"margin-top: 14px\"><font color=\"$grey\"><b>Details</b></font></p>")
-            out.append(Markdown.body(item.details))
+            out.append(Markdown.body(item.details, folds))
         }
         if (item.comments.isNotEmpty()) {
             val gap = if (item.details.isNotBlank() || above) 14 else 0
@@ -86,16 +156,16 @@ object ItemText {
             val mark = if (comment.author == Author.AGENT) "AllIcons.Actions.Lightning" else "AllIcons.General.User"
             val time = StringUtil.escapeXmlEntities(time(comment.time, zone))
             out.append("<p style=\"margin-top: 10px\"><icon src=\"$mark\">&nbsp;<b>$who</b>&nbsp;&nbsp;<font color=\"$grey\">$time</font></p>")
-            out.append(Markdown.body(comment.text))
+            out.append(Markdown.body(comment.text, folds))
         }
         return out.append("</body></html>").toString()
     }
 
     /** The question, the answers I was offered with mine in bold, and my answer in full when it was none of them. */
-    private fun decision(out: StringBuilder, decision: Decision, zone: ZoneId, grey: String) {
+    private fun decision(out: StringBuilder, decision: Decision, zone: ZoneId, grey: String, folds: Markdown.Folds) {
         val time = StringUtil.escapeXmlEntities(time(decision.time, zone))
         out.append("<p style=\"margin-top: 10px\"><icon src=\"AllIcons.General.User\">&nbsp;<font color=\"$grey\">$time</font></p>")
-        out.append(Markdown.body(decision.question))
+        out.append(Markdown.body(decision.question, folds))
         val chosen = decision.options.firstOrNull { it.equals(decision.answer, ignoreCase = true) }
         if (decision.options.isNotEmpty()) {
             out.append("<ul>")
@@ -105,7 +175,7 @@ object ItemText {
             }
             out.append("</ul>")
         }
-        if (chosen == null) out.append(Markdown.body(decision.answer))
+        if (chosen == null) out.append(Markdown.body(decision.answer, folds))
     }
 
     /** The time in [zone], or as it was written when it is not a time. */

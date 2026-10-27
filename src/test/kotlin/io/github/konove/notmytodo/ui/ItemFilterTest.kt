@@ -160,6 +160,24 @@ class ItemFilterTest {
     }
 
     @Test
+    fun `a data-policy block folds into one line numbered through the page and opens when asked`() {
+        val policy = "```text\n<dataSource:chat>\n<dataPolicy:chat>\nUse it only here.\n</dataPolicy:chat>\n</dataSource:chat>\n```"
+        val text = "from Chat\n```\nplain code\n```\n$policy\nafter"
+        val folded = Markdown.body(text, Markdown.Folds(emptySet(), "#999999"))
+        assertTrue(folded, "<a href=\"notmytodo-policy:0\"><font color=\"#999999\">▸ Chat data policy</font></a>" in folded)
+        assertTrue(folded, "plain code" in folded && "from Chat" in folded && "after" in folded)
+        assertFalse(folded, "Use it only here." in folded)
+        val folds = Markdown.Folds(setOf(1), "#999999")
+        val first = Markdown.body(policy, folds)
+        val second = Markdown.body(policy.replace("chat", "tracker"), folds)
+        assertFalse(first, "Use it only here." in first)
+        assertTrue(second, "▾ Tracker data policy" in second && "notmytodo-policy:1" in second && "Use it only here." in second)
+        assertTrue(Markdown.body(policy).contains("Use it only here."))
+        assertEquals(1, Markdown.Folds.index("notmytodo-policy:1"))
+        assertEquals(null, Markdown.Folds.index("https://example.com"))
+    }
+
+    @Test
     fun `an item is in a file, or lost, by any of its anchors`() {
         val two = TodoItem("T-20", "two places", anchors = listOf(anchor("src/a.cpp"), anchor("src/b.cpp", lost = true)))
         val whole = TodoItem("T-21", "whole file", anchors = listOf(Anchor.file("src/b.cpp")))
