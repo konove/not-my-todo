@@ -26,7 +26,6 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.ui.BrowserHyperlinkListener
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.JBColor
@@ -89,7 +88,6 @@ import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
-import javax.swing.event.HyperlinkEvent
 import javax.swing.text.Highlighter
 import javax.swing.text.JTextComponent
 
@@ -333,11 +331,7 @@ class DetailPane(
         isEditable = false
         isOpaque = false
         border = null
-        addHyperlinkListener { e ->
-            val index = Markdown.Folds.index(e.description)
-            if (index == null) BrowserHyperlinkListener.INSTANCE.hyperlinkUpdate(e)
-            else if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) togglePolicy(index, e.sourceElement?.startOffset ?: 0)
-        }
+        addHyperlinkListener(Markdown.Folds.listener { index, offset -> togglePolicy(index, offset) })
     }
     internal val viewDetailsScroll = ScrollPaneFactory.createScrollPane(viewDetails, true).apply {
         isOpaque = false
@@ -694,7 +688,7 @@ class DetailPane(
     /** Opens or closes the data-policy block [index], whose line starts at [offset] of the text shown. */
     private fun togglePolicy(index: Int, offset: Int) {
         val item = current ?: return
-        openPolicies = if (index in openPolicies) openPolicies - index else openPolicies + index
+        openPolicies = Markdown.Folds.toggled(openPolicies, index)
         policyAt = offset
         show(item)
     }

@@ -4,13 +4,14 @@ import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.ui.BrowserHyperlinkListener
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
@@ -67,13 +68,20 @@ object ItemPopup {
         // What wraps says how high it is only once it knows how wide it is.
         parts.forEach { it.setSize(width, Short.MAX_VALUE.toInt()) }
         if (item.details.isNotBlank()) {
+            val grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground())
+            var open = emptySet<Int>()
             val details = JEditorPane().apply {
                 editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
                 isEditable = false
                 isOpaque = false
                 border = null
-                addHyperlinkListener(BrowserHyperlinkListener.INSTANCE)
-                text = Markdown.html(item.details)
+                // A data-policy block opens in place and scrolls with the rest; the popup keeps its size.
+                addHyperlinkListener(Markdown.Folds.listener { index, offset ->
+                    open = Markdown.Folds.toggled(open, index)
+                    text = Markdown.html(item.details, Markdown.Folds(open, grey))
+                    caretPosition = offset.coerceIn(0, document.length)
+                })
+                text = Markdown.html(item.details, Markdown.Folds(open, grey))
                 caretPosition = 0
                 setSize(width, Short.MAX_VALUE.toInt())
             }

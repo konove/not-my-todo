@@ -161,6 +161,21 @@ class UiSmokeTest : BasePlatformTestCase() {
         assertNull(com.intellij.util.ui.UIUtil.findComponentOfType(ItemPopup.content(store.create(Draft("bare")), false), javax.swing.JEditorPane::class.java))
     }
 
+    fun `test popup folds a data-policy block and a click opens it`() {
+        val store = TodoService.getInstance(project).store
+        val item = store.create(Draft("a", details = "from Chat\n```text\n<dataSource:chat>\nKeep these tags.\n</dataSource:chat>\n```"))
+        val details = com.intellij.util.ui.UIUtil.findComponentOfType(ItemPopup.content(item, false), javax.swing.JEditorPane::class.java)!!
+        fun shown() = details.document.let { it.getText(0, it.length) }
+        fun click() = details.hyperlinkListeners.forEach {
+            it.hyperlinkUpdate(javax.swing.event.HyperlinkEvent(details, javax.swing.event.HyperlinkEvent.EventType.ACTIVATED, null, "notmytodo-policy:0"))
+        }
+        assertTrue(shown(), shown().contains("Chat data policy") && !shown().contains("Keep these tags."))
+        click()
+        assertTrue(shown(), shown().contains("Keep these tags."))
+        click()
+        assertFalse(shown(), shown().contains("Keep these tags."))
+    }
+
     fun `test a row of chips counts those it has no room for`() {
         val row = ChipRow()
         row.show(listOf("refactoring", "game", "performance", "docs").map(Chips::tag))

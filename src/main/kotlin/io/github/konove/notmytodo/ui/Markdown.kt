@@ -1,6 +1,7 @@
 package io.github.konove.notmytodo.ui
 
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.ui.BrowserHyperlinkListener
 import io.github.konove.notmytodo.model.Author
 import io.github.konove.notmytodo.model.Decision
 import io.github.konove.notmytodo.model.Status
@@ -13,13 +14,15 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import javax.swing.event.HyperlinkEvent
+import javax.swing.event.HyperlinkListener
 
 /** Markdown, as agents and I write it in an item's details, to HTML a Swing text pane can show. */
 object Markdown {
     private val flavour = GFMFlavourDescriptor()
     private val policyTag = Regex("^\\s*<data(?:Source|Policy):([^>\\s]+)>")
 
-    fun html(text: String): String = "<html><body>" + body(text) + "</body></html>"
+    fun html(text: String, folds: Folds? = null): String = "<html><body>" + body(text, folds) + "</body></html>"
 
     /**
      * The HTML of [text] without the tags around it, to put several texts in one page.
@@ -90,6 +93,19 @@ object Markdown {
 
             /** The number of the block a link opens or closes, or null for any other link. */
             fun index(href: String?): Int? = href?.takeIf { it.startsWith(SCHEME) }?.removePrefix(SCHEME)?.toIntOrNull()
+
+            /**
+             * Calls [toggle] with the number of the block whose line was clicked and where that line starts in the text,
+             * and opens every other link in the browser.
+             */
+            fun listener(toggle: (index: Int, offset: Int) -> Unit) = HyperlinkListener { e ->
+                val index = index(e.description)
+                if (index == null) BrowserHyperlinkListener.INSTANCE.hyperlinkUpdate(e)
+                else if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) toggle(index, e.sourceElement?.startOffset ?: 0)
+            }
+
+            /** [open] with [index] opened, or closed when it was open. */
+            fun toggled(open: Set<Int>, index: Int): Set<Int> = if (index in open) open - index else open + index
         }
     }
 
