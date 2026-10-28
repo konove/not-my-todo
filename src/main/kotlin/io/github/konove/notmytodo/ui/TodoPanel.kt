@@ -44,6 +44,7 @@ import com.intellij.util.text.DateFormatUtil
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import io.github.konove.notmytodo.handoff.TerminalDrop
 import io.github.konove.notmytodo.ide.CodeTodos
 import io.github.konove.notmytodo.ide.EditorAnchors
 import io.github.konove.notmytodo.ide.ItemActions
@@ -229,13 +230,26 @@ class TodoPanel(
         })
         table.fixedCellHeight = JBUI.scale(ROW_HEIGHT)
         table.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        // A row can be dragged onto a terminal where Claude Code runs, which takes it as pasted text.
+        // A row can be dragged onto a terminal where Claude Code runs, which takes it as pasted text. A classic
+        // terminal tab takes no drop by itself, so it is given one for as long as the drag lasts.
         // Swing refuses to switch dragging on where there is no screen, as in the tests.
         if (!GraphicsEnvironment.isHeadless()) table.dragEnabled = true
         table.transferHandler = object : TransferHandler() {
+            private var detach: () -> Unit = {}
+
             override fun getSourceActions(c: JComponent): Int = COPY
 
-            override fun createTransferable(c: JComponent): Transferable? = dragText(table.selectedValue)?.let(::StringSelection)
+            override fun createTransferable(c: JComponent): Transferable? {
+                val text = dragText(table.selectedValue) ?: return null
+                detach()
+                detach = TerminalDrop.attach()
+                return StringSelection(text)
+            }
+
+            override fun exportDone(source: JComponent, data: Transferable?, action: Int) {
+                detach()
+                detach = {}
+            }
         }
         table.emptyText.text = "No items. Select code and choose Add TODO."
         table.addListSelectionListener { if (!it.valueIsAdjusting && !refreshing) detail.show(selected) }

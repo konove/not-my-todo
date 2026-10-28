@@ -50,7 +50,8 @@ AI agent take items off your hands.
   progress; a prompt on the clipboard may reach no agent, so it leaves the
   status alone and asks the agent to mark the item itself.
 - **Drag to a session:** drag a row of the list onto a terminal where Claude
-  Code is running, in the IDE or outside it, and the item's prompt lands in
+  Code is running, in the IDE (the tab the Claude Code plugin opens as well) or
+  outside it, and the item's prompt lands in
   Claude's input for you to send. Copying a row gives the same text. The
   status is not changed; the prompt asks the agent to mark the item in
   progress.
