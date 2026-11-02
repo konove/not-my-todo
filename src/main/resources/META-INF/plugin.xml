@@ -33,6 +33,17 @@
             <a href="https://github.com/konove/not-my-todo">github.com/konove/not-my-todo</a>.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <p><b>0.3.1</b></p>
+        <ul>
+            <li>The detail pane and the item popup show an item's text as Quick Documentation does: a code
+                block that names its language is coloured, where the item came from, where it was moved from
+                and the commit that fixed it stand in a table at the top, the sections have ruled headings,
+                and each comment and decision has a badge for its author.</li>
+            <li>A chat data-policy block in an item's text is folded into one line, in the detail pane and
+                the popup; a click opens it.</li>
+            <li>A row dragged onto a classic terminal tab, such as the one the Claude Code plugin opens, now
+                lands in it.</li>
+        </ul>
         <p><b>0.3.0</b></p>
         <ul>
             <li>Items are kept in one store per machine, outside the repositories, shared with the
