@@ -5,7 +5,7 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.command.WriteCommandAction
-import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -67,7 +67,7 @@ internal class ImportNotices(private val project: Project) {
         /** Opens [file] in an editor. */
         fun openFile(project: Project, file: Path) {
             val found = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file) ?: return
-            FileEditorManager.getInstance(project).openFile(found, true)
+            OpenFileDescriptor(project, found).navigate(true)
         }
 
         /** [file] as the user knows it: relative to the project's folder when it is in it. */
