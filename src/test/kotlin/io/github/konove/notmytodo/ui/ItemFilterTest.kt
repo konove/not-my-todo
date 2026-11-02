@@ -160,6 +160,15 @@ class ItemFilterTest {
     }
 
     @Test
+    fun `a code block whose fence names a language is handed to the highlighter, unescaped`() {
+        val text = "```xml\n<a href=\"x\"/>\n```\n```\nplain <b>\n```\n```cobol\nMOVE\n```"
+        val html = Markdown.body(text, highlight = { language, code -> if (language == "xml") "<pre><code>[$language:$code]</code></pre>" else null })
+        assertTrue(html, "<pre><code>[xml:<a href=\"x\"/>\n]</code></pre>" in html)
+        assertTrue(html, "plain &lt;b&gt;" in html)
+        assertTrue(html, "<code class=\"language-cobol\">MOVE" in html)
+    }
+
+    @Test
     fun `a data-policy block folds into one line numbered through the page and opens when asked`() {
         val policy = "```text\n<dataSource:chat>\n<dataPolicy:chat>\nUse it only here.\n</dataPolicy:chat>\n</dataSource:chat>\n```"
         val text = "from Chat\n```\nplain code\n```\n$policy\nafter"

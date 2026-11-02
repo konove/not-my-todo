@@ -9,9 +9,7 @@ import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.panels.VerticalLayout
-import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import io.github.konove.notmytodo.ide.ItemActions
 import io.github.konove.notmytodo.ide.TodoService
 import io.github.konove.notmytodo.model.Priority
@@ -24,7 +22,6 @@ import java.awt.Font
 import java.awt.event.MouseEvent
 import javax.swing.JButton
 import javax.swing.JComponent
-import javax.swing.JEditorPane
 import javax.swing.JPanel
 
 /** The small popup shown when a gutter mark is clicked: the item as the detail pane shows it, and what can be done with it. */
@@ -36,7 +33,7 @@ object ItemPopup {
         val panel = JPanel(BorderLayout(0, JBUI.scale(10))).apply {
             border = JBUI.Borders.empty(12, 14, 10, 14)
             val links = TodoService.getInstance(project).links()
-            add(content(item, links.isBlocked(item), links.priority(item)), BorderLayout.CENTER)
+            add(content(item, links.isBlocked(item), links.priority(item), MarkdownPane.highlighter(project)), BorderLayout.CENTER)
             add(buttonRow, BorderLayout.SOUTH)
         }
         val popup = JBPopupFactory.getInstance().createComponentPopupBuilder(panel, null)
@@ -52,7 +49,7 @@ object ItemPopup {
      * The title, the chips and the details of [item], one under the other and [WIDTH] wide. Each
      * wraps to that width, and the details scroll when they are longer than [DETAILS_MAX].
      */
-    internal fun content(item: TodoItem, blocked: Boolean, priority: Priority = item.priority): JPanel {
+    internal fun content(item: TodoItem, blocked: Boolean, priority: Priority = item.priority, highlight: Markdown.Highlight? = null): JPanel {
         val width = JBUI.scale(WIDTH)
         val title = JBTextArea(item.title).apply {
             isEditable = false
@@ -68,20 +65,17 @@ object ItemPopup {
         // What wraps says how high it is only once it knows how wide it is.
         parts.forEach { it.setSize(width, Short.MAX_VALUE.toInt()) }
         if (item.details.isNotBlank()) {
-            val grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground())
+            val grey = ColorUtil.toHtmlColor(MarkdownPane.grey)
             var open = emptySet<Int>()
-            val details = JEditorPane().apply {
-                editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
-                isEditable = false
-                isOpaque = false
-                border = null
+            fun render() = MarkdownPane.fit(highlight) { Markdown.html(item.details, Markdown.Folds(open, grey), it) }
+            val details = MarkdownPane.create().apply {
                 // A data-policy block opens in place and scrolls with the rest; the popup keeps its size.
                 addHyperlinkListener(Markdown.Folds.listener { index, offset ->
                     open = Markdown.Folds.toggled(open, index)
-                    text = Markdown.html(item.details, Markdown.Folds(open, grey))
+                    text = render()
                     caretPosition = offset.coerceIn(0, document.length)
                 })
-                text = Markdown.html(item.details, Markdown.Folds(open, grey))
+                text = render()
                 caretPosition = 0
                 setSize(width, Short.MAX_VALUE.toInt())
             }

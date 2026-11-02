@@ -41,7 +41,6 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.IconUtil
-import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -85,7 +84,6 @@ import java.util.concurrent.Future
 import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComponent
-import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.text.Highlighter
@@ -326,11 +324,7 @@ class DetailPane(
         addMouseMotionListener(mouse)
     }
     private var shownStrip: List<ChipSpec>? = null
-    internal val viewDetails = JEditorPane().apply {
-        editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
-        isEditable = false
-        isOpaque = false
-        border = null
+    internal val viewDetails = MarkdownPane.create().apply {
         addHyperlinkListener(Markdown.Folds.listener { index, offset -> togglePolicy(index, offset) })
     }
     internal val viewDetailsScroll = ScrollPaneFactory.createScrollPane(viewDetails, true).apply {
@@ -340,6 +334,7 @@ class DetailPane(
         preferredSize = JBUI.size(200, 60)
     }
     private var shownDetails: String? = null
+    private val highlight = MarkdownPane.highlighter(project)
     /** The data-policy blocks of the shown item that are open, and where the link was that opened or closed one last. */
     private var openPolicies = emptySet<Int>()
     private var policyAt: Int? = null
@@ -646,7 +641,9 @@ class DetailPane(
         // The panel refreshes often; leave the text and the scroll position alone when nothing changed.
         val fixes = project.service<FixCommits>()
         // The fixing commit is looked for in this checkout's git, which knows nothing of another project's commits.
-        val text = ItemText.html(if (own) fixes.shown(item) else item, grey = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground()), open = openPolicies)
+        val text = MarkdownPane.fit(highlight) {
+            ItemText.html(if (own) fixes.shown(item) else item, grey = ColorUtil.toHtmlColor(MarkdownPane.grey), open = openPolicies, highlight = it)
+        }
         // The commit that fixed it is looked up in the background and shown when it is found.
         if (own && fixes.derives(item)) fixes.refreshLater(expired) { if (current === item) show(item) }
         val at = policyAt

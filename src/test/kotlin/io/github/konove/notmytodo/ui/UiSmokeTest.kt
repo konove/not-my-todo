@@ -317,9 +317,11 @@ class UiSmokeTest : BasePlatformTestCase() {
             comments = listOf(Comment(Author.AGENT, "2026-10-06T09:00:00Z", "a *short* note"), Comment(Author.USER, "then", "mine")),
         )
         val html = ItemText.html(item, java.time.ZoneId.of("Europe/Berlin"))
-        assertTrue(html, html.contains("Comments · 2"))
-        assertTrue(html, html.contains("<icon src=\"AllIcons.Actions.Lightning\">&nbsp;<b>Agent</b>") && html.contains(">2026-10-06 11:00<"))
-        assertTrue(html, html.contains("<icon src=\"AllIcons.General.User\">&nbsp;<b>Me</b>") && html.contains(">then<"))
+        assertTrue(html, html.contains("<p class=\"section\"><b>Comments · 2</b></p>"))
+        // The badge stands left of the author and the time; the text is indented under the author.
+        assertTrue(html, html.contains("<td class=\"badge\" valign=\"top\"><icon src=\"AllIcons.Actions.Lightning\"></td><td><b>Agent</b>") && html.contains(">2026-10-06 11:00<"))
+        assertTrue(html, html.contains("<icon src=\"AllIcons.General.User\"></td><td><b>Me</b>") && html.contains(">then<"))
+        assertTrue(html, html.contains("<tr><td></td><td><p>a <em>short</em> note"))
         assertFalse(html, html.contains("<hr>"))
         assertFalse(ItemText.html(item.copy(comments = emptyList())).contains("Comments"))
         assertTrue(html, html.contains("a <em>short</em> note"))
@@ -467,9 +469,21 @@ class UiSmokeTest : BasePlatformTestCase() {
         val item = store.create(Draft("a", source = "30c6f6ae..e9ac6245"))
         val fixed = store.update(item.id) { it.copy(status = Status.FIXED, fixedIn = "93e7970", resolution = "Cached the path.\nTwo lines.") }
         val html = ItemText.html(fixed)
-        assertTrue(html, html.contains("From 30c6f6ae..e9ac6245") && html.contains("Fixed in 93e7970") && html.contains("Cached the path."))
+        // Where it came from and the commit stand in a table of facts; the resolution is a section under them.
+        assertTrue(html, html.contains("<td class=\"label\">From</td><td><code>30c6f6ae..e9ac6245</code></td>"))
+        assertTrue(html, html.contains("<td class=\"label\">Fixed in</td><td><code>93e7970</code></td>"))
+        assertTrue(html, html.contains("<p class=\"section\"><b>Resolution</b></p>") && html.contains("Cached the path."))
+        assertTrue(html, html.indexOf("Fixed in") < html.indexOf("Resolution"))
         assertFalse(html, html.contains("Details"))
-        assertTrue(ItemText.html(fixed.copy(status = Status.WONT_FIX, fixedIn = null)).contains("<b>Closed</b>"))
+        val closed = ItemText.html(fixed.copy(status = Status.WONT_FIX))
+        assertTrue(closed, closed.contains(">Closed in</td>") && !closed.contains("Fixed in"))
+        val noCommit = ItemText.html(fixed.copy(source = null, fixedIn = null))
+        // Closed without a commit, the heading over the resolution still says it was closed.
+        val closedNoCommit = ItemText.html(fixed.copy(status = Status.WONT_FIX, fixedIn = null))
+        assertTrue(closedNoCommit, closedNoCommit.contains("<b>Closed</b>") && !closedNoCommit.contains("Resolution"))
+        assertFalse(noCommit, noCommit.contains("<table"))
+        // Nothing stands above the first section, so it has no gap over it.
+        assertTrue(noCommit, noCommit.contains("<body><p class=\"section\" style=\"margin-top: 0\"><b>Resolution</b></p>"))
         assertFalse(ItemText.html(item.copy(source = null)).contains("From"))
 
         val pane = DetailPane(project, testRootDisposable.expiry())
@@ -856,7 +870,56 @@ class UiSmokeTest : BasePlatformTestCase() {
 
     fun `test the detail pane says where an item was moved from`() {
         val html = ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-1", "a", movedFrom = "inbox/T-4"))
-        assertTrue(html, html.contains("Moved from inbox/T-4"))
+        assertTrue(html, html.contains("<td class=\"label\">Moved from</td><td>inbox/T-4</td>"))
+    }
+
+    fun `test a source puts its date after a dot and what is in brackets on a grey line under it`() {
+        val item = io.github.konove.notmytodo.model.TodoItem("T-1", "a", source = "TODO MCP restudy 2026-10-17 (cnc_red_alert sessions 2026-10-09..17)")
+        val html = ItemText.html(item, grey = "#999999")
+        assertTrue(html, html.contains(
+            "<td>TODO MCP restudy <font color=\"#999999\">· 2026-10-17</font><br><font color=\"#999999\">cnc_red_alert sessions 2026-10-09..17</font></td>",
+        ))
+        val plain = ItemText.html(item.copy(source = "review of <b> & co"), grey = "#999999")
+        assertTrue(ItemText.html(item.copy(source = "crash in Parser.parse(String)")).contains("<td>crash in Parser.parse(String)</td>"))
+        // A number or a date without dashes is no commit; a short hash has a letter, and a full one may not.
+        assertTrue(ItemText.html(item.copy(source = "20261017")).contains("<td>20261017</td>"))
+        assertTrue(ItemText.html(item.copy(source = "1234567")).contains("<td>1234567</td>"))
+        val digits = "1".repeat(40)
+        assertTrue(ItemText.html(item.copy(source = digits)).contains("<td><code>$digits</code></td>"))
+        assertTrue(plain, plain.contains("<td>review of &lt;b&gt; &amp; co</td>"))
+    }
+
+    fun `test a code block is highlighted by the language its fence names`() {
+        val highlight = MarkdownPane.highlighter(project)
+        val xml = highlight.html("xml", "<a href=\"x\"/>\n")
+        assertTrue(xml.toString(), xml != null && xml.startsWith("<pre><code>") && xml.contains("<span style=\"color:"))
+        assertNull(highlight.html("no-such-language", "x"))
+        val html = ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-1", "a", details = "```xml\n<a/>\n```"), highlight = highlight)
+        assertFalse(html, html.contains("language-xml"))
+        // Coloured code that would make the page too long for the pane is left plain.
+        assertEquals("plain", MarkdownPane.fit(highlight) { if (it == null) "plain" else "x".repeat(60_000) })
+        assertEquals("short", MarkdownPane.fit(highlight) { if (it == null) "plain" else "short" })
+    }
+
+    fun `test a long word wraps in the pane`() {
+        val pane = MarkdownPane.create()
+        fun height(body: String): Int {
+            pane.text = "<html><body>$body</body></html>"
+            pane.setSize(200, Short.MAX_VALUE.toInt())
+            return pane.preferredSize.height
+        }
+        val one = height("x")
+        assertTrue(height("x".repeat(400)) > 3 * one)
+    }
+
+    fun `test comments carry a round badge, tinted for the agent`() {
+        val agent = MarkdownPane.icon(ItemText.AGENT_ICON)!!
+        val me = MarkdownPane.icon(ItemText.MY_ICON)!!
+        assertEquals(com.intellij.util.ui.JBUI.scale(20), agent.iconWidth)
+        assertEquals(agent.iconHeight, me.iconHeight)
+        assertNull(MarkdownPane.icon("AllIcons.Nodes.Class"))
+        val pane = DetailPane(project, testRootDisposable.expiry())
+        assertTrue(pane.viewDetails is com.intellij.ui.components.JBHtmlPane)
     }
 
     fun `test the project selector names this project as this project`() {
