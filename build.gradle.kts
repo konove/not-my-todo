@@ -71,6 +71,12 @@ intellijPlatform {
     }
 }
 
+tasks.verifyPluginSignature {
+    // Taken from signPlugin's output, so that one run can sign and then check: the default names the same zip
+    // without running after signPlugin, and Gradle refuses the pair.
+    inputArchiveFile = tasks.signPlugin.flatMap { it.signedArchiveFile }
+}
+
 tasks.test {
     // CLion's bundled C++ backend plugins break light test fixtures; tests need only the platform.
     systemProperty("idea.load.plugins.id", "io.github.konove.notmytodo,org.jetbrains.plugins.terminal")
