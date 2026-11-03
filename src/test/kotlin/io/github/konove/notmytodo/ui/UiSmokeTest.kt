@@ -894,6 +894,10 @@ class UiSmokeTest : BasePlatformTestCase() {
         val xml = highlight.html("xml", "<a href=\"x\"/>\n")
         assertTrue(xml.toString(), xml != null && xml.startsWith("<pre><code>") && xml.contains("<span style=\"color:"))
         assertNull(highlight.html("no-such-language", "x"))
+        // The test holds the lock that lets it read; the panel on the EDT does not, so the highlighter takes it itself.
+        val pooled = com.intellij.openapi.application.ApplicationManager.getApplication()
+            .executeOnPooledThread<String?> { highlight.html("xml", "<b/>") }.get()
+        assertTrue(pooled.toString(), pooled != null && pooled.contains("<span style=\"color:"))
         val html = ItemText.html(io.github.konove.notmytodo.model.TodoItem("T-1", "a", details = "```xml\n<a/>\n```"), highlight = highlight)
         assertFalse(html, html.contains("language-xml"))
         // Coloured code that would make the page too long for the pane is left plain.

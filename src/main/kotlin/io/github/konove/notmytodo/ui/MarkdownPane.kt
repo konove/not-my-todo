@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.lang.Language
 import com.intellij.lang.documentation.DocumentationSettings
 import com.intellij.lang.documentation.QuickDocHighlightingHelper
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.ColorUtil
@@ -61,6 +62,7 @@ object MarkdownPane {
      * files (xml, cpp, json), or null when no language goes by that name.
      * The panel refreshes often, so the languages it has looked up and the blocks it has coloured are kept
      * until the editor's colours or the settings of Quick Documentation change.
+     * Colouring parses the code into a file, which takes a read action even on the EDT.
      */
     fun highlighter(project: Project): Markdown.Highlight {
         var look: List<Any?>? = null
@@ -81,7 +83,9 @@ object MarkdownPane {
                 done.clear()
             }
             languages.getOrPut(name) { QuickDocHighlightingHelper.guessLanguage(name) }?.let { language ->
-                done.getOrPut(name to code) { QuickDocHighlightingHelper.getStyledCodeBlock(project, language, code.removeSuffix("\n")) }
+                done.getOrPut(name to code) {
+                    runReadActionBlocking { QuickDocHighlightingHelper.getStyledCodeBlock(project, language, code.removeSuffix("\n")) }
+                }
             }
         }
     }
