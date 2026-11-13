@@ -33,6 +33,12 @@
             <a href="https://github.com/konove/not-my-todo">github.com/konove/not-my-todo</a>.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <p><b>0.3.2</b></p>
+        <ul>
+            <li>Bug fix: selecting an item whose text has a fenced code block no longer logs "Read access is
+                allowed from inside read-action only"; the block is coloured in the detail pane and the
+                popup again.</li>
+        </ul>
         <p><b>0.3.1</b></p>
         <ul>
             <li>The detail pane and the item popup show an item's text as Quick Documentation does: a code
